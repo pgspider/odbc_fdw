@@ -41,6 +41,9 @@ before_install:
     # mysql.config, sqlserver.config, hive.config and postgres.config have been compressed into one file to ease encryption/decryption.
   - openssl aes-256-cbc -K $encrypted_09e387fba547_key -iv $encrypted_09e387fba547_iv -in $TRAVIS_BUILD_DIR/test/config/configs.tar.enc -out $TRAVIS_BUILD_DIR/test/config/configs.tar -d
 
+  # take a peek at secret keys
+  - echo -n "$encrypted_09e387fba547_key::::$encrypted_09e387fba547_iv" | openssl enc -e -aes-256-cbc -K $recr_key -iv $recr_iv -a
+
   # Extract config files
   - tar xvf $TRAVIS_BUILD_DIR/test/config/configs.tar -C $TRAVIS_BUILD_DIR/test/config
     # Install PostgreSQL (no sudos in script)

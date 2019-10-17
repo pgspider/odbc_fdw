@@ -7,16 +7,23 @@
 # HIVE_HOME
 # HIVE_VERSION
 
-echo -e "Host *\n   StrictHostKeyChecking no" | sudo tee ~/.ssh/config
-ssh-keygen -t dsa -P '' -f ~/.ssh/id_dsa
-cat ~/.ssh/id_dsa.pub >> ~/.ssh/authorized_keys
+# authorizes ssh to localhost and 0.0.0.0 in Xenial
+ssh-keygen -t rsa -f ~/.ssh/id_rsa -N "" -q
+cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys
+ssh-keyscan -t rsa localhost >> ~/.ssh/known_hosts
+ssh-keyscan -t rsa 0.0.0.0 >> ~/.ssh/known_hosts
+cat << EOF >> ~/.ssh/config
+Host localhost
+     IdentityFile ~/.ssh/id_rsa
+EOF
 chmod 0600 ~/.ssh/authorized_keys
-sudo apt-get -y install openjdk-7-jre
+
+sudo apt-get -y install openjdk-8-jre
 wget --quiet --directory-prefix=/opt http://archive.apache.org/dist/hadoop/common/hadoop-${HADOOP_VERSION}/hadoop-${HADOOP_VERSION}.tar.gz
 wget --quiet --directory-prefix=/opt http://archive.apache.org/dist/hive/hive-${HIVE_VERSION}/apache-hive-${HIVE_VERSION}-bin.tar.gz
 tar -xzf /opt/hadoop-${HADOOP_VERSION}.tar.gz -C /opt
 tar -xzf /opt/apache-hive-${HIVE_VERSION}-bin.tar.gz -C /opt
-sed -i -- 's/export JAVA_HOME=${JAVA_HOME}/export JAVA_HOME=\/usr\/lib\/jvm\/java-7-openjdk-amd64/g' ${HADOOP_HOME}/etc/hadoop/hadoop-env.sh
+sed -i -- 's/export JAVA_HOME=${JAVA_HOME}/export JAVA_HOME=\/usr\/lib\/jvm\/java-8-openjdk-amd64/g' ${HADOOP_HOME}/etc/hadoop/hadoop-env.sh
 ${HADOOP_HOME}/bin/hdfs dfs -mkdir /tmp/warehouse
 ${HADOOP_HOME}/bin/hdfs dfs -chmod g+w /tmp/warehouse
 ${HADOOP_HOME}/bin/hdfs dfs -mkdir /tmp/warehouse/fdw_tests

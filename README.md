@@ -31,7 +31,7 @@ in the `/etc/odbcinst.ini` file.
 Driver requirements
 --------------------
 
-- odbc-postgreql: 9.x
+- odbc-postgresql: >= 9.x
 - libmyodbc: >=  5.1
 - FreeTDS: >= 1.0
 - hive-odbc-native: >= 2.1

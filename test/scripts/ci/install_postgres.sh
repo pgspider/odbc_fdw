@@ -15,7 +15,4 @@ apt-get install -y --allow-unauthenticated --no-install-recommends --no-install-
 
 # Recreate the cluster with the config we need
 rm -rf /etc/postgresql/$POSTGRESQL_VERSION /var/lib/postgresql/$POSTGRESQL_VERSION
-pg_createcluster -u postgres --locale C $POSTGRESQL_VERSION main -- -A trust
-
-# Start the service
-/etc/init.d/postgresql start $POSTGRESQL_VERSION || sudo journalctl -xe
+pg_createcluster -u postgres --locale C $POSTGRESQL_VERSION main --start -- -A trust

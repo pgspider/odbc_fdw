@@ -8,8 +8,7 @@ set -e
 
 # Remove all PgSQL versions
 service postgresql stop;
-apt-get remove postgresql* -y
-apt-get -y autoremove
+apt-get purge postgresql* -y
 
 # Install the Postgresql release that we need
 apt-get install -y --allow-unauthenticated --no-install-recommends --no-install-suggests postgresql-$POSTGRESQL_VERSION postgresql-client-$POSTGRESQL_VERSION postgresql-server-dev-$POSTGRESQL_VERSION postgresql-common

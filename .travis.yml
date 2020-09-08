@@ -53,7 +53,8 @@ before_install:
   - sudo cp $TRAVIS_BUILD_DIR/test/scripts/ci/odbcinst.ini /etc
 
 
-install:
+script:
+  - export PGPORT=$(pg_lsclusters | grep $POSTGRESQL_VERSION | awk '{print $3}')
   - bash $TRAVIS_BUILD_DIR/test/fixtures/load_all_fixtures.sh
   - bash $TRAVIS_BUILD_DIR/test/tests-generator.sh
   - cat $TRAVIS_BUILD_DIR/test/config/postgres.config
@@ -63,10 +64,12 @@ install:
   - psql -U postgres -d fdw_tests -c "select * from pg_foreign_table"
   - psql -U postgres -c "select * from pg_foreign_data_wrapper"
   - sudo make install
-
-script:
   - make integration_tests || { cat test/regression.diffs; false; }
 
 after_failure:
-  - sudo cat /var/log/postgresql/postgresql-${PGSQL_VERSION}-main.log
+  - pg_lsclusters
+  - cat regression.out
+  - cat regression.diffs
+  - echo $PGPORT
+  - sudo cat /var/log/postgresql/postgresql-$POSTGRESQL_VERSION-main.log
 

@@ -64,12 +64,12 @@ script:
   - psql -U postgres -d fdw_tests -c "select * from pg_foreign_table"
   - psql -U postgres -c "select * from pg_foreign_data_wrapper"
   - sudo make install
-  - make integration_tests || { cat test/regression.diffs; false; }
+  - make integration_tests
 
 after_failure:
   - pg_lsclusters
-  - cat regression.out
-  - cat regression.diffs
+  - cat test/regression.out
+  - cat test/regression.diffs
   - echo $PGPORT
   - sudo cat /var/log/postgresql/postgresql-$POSTGRESQL_VERSION-main.log
 

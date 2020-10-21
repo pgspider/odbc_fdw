@@ -627,10 +627,10 @@ sql_data_type(
 	case SQL_VARBINARY :
 		appendStringInfo(sql_type, "varbit(%u)", (unsigned)column_size);
 		break;
-	*/
 	case SQL_LONGVARBINARY :
 		appendStringInfo(sql_type, "bytea");
 		break;
+	*/
 	case SQL_TYPE_DATE :
 	case SQL_DATE :
 		appendStringInfo(sql_type, "date");

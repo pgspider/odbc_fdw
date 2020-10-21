@@ -737,10 +737,6 @@ check_return(SQLRETURN ret, char *msg, SQLHANDLE handle, SQLSMALLINT type)
 	SQLCHAR  text[256];
 	SQLSMALLINT  len;
 	SQLRETURN    diag_ret;
-	#ifdef DEBUG
-	if (SQL_SUCCEEDED(ret))
-		elog(DEBUG1, "Successful result: %s", error_msg);
-	#endif
 
 	if (!SQL_SUCCEEDED(ret))
 	{
@@ -1756,6 +1752,10 @@ odbcIterateForeignScan(ForeignScanState *node)
 					pfree(buf);
 					buf = accum_buffer;
 				}
+			}
+			else
+			{
+				check_return(ret, "Reading data", stmt, SQL_HANDLE_STMT);
 			}
 
 			if (SQL_SUCCEEDED(ret))

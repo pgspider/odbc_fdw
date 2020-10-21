@@ -2235,7 +2235,12 @@ odbcImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 		foreach(option, stmt->options)
 		{
 			DefElem *def = (DefElem *) lfirst(option);
-			appendOption(&create_statement, ++option_count == 1, def->defname, defGetString(def));
+			// options not in the CREATE FOREIGN TABLE statement will have location == -1
+			// we'll ignore them as they are defined by the SERVER or USER MAPPING, and including them here
+			// would be functional but could expose sensitive information
+			if (def->location != -1) {
+				appendOption(&create_statement, ++option_count == 1, def->defname, defGetString(def));
+			}
 		}
 		if (is_blank_string(options.table))
 		{

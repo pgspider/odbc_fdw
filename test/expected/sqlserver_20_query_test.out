@@ -22,3 +22,8 @@ SELECT * FROM ODBCQuerySize('sqlserver_fdw', 'select * from sqlserver_test_table
              1
 (1 row)
 
+SELECT * FROM sqlserver_test_table_with_unsupported_initial_column;
+ id | name
+----+------
+  1 | aaaa
+(1 row)

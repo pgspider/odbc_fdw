@@ -22,5 +22,9 @@ begin
 -- Create fixture
     create table sqlserver_test_table(id int, name text);
     insert into sqlserver_test_table values (1, 'aaaa');
+
+    create table sqlserver_test_table_with_unsupported_initial_column(ignored varbinary(10), id int, name text);
+    insert into sqlserver_test_table_with_unsupported_initial_column(id, name) values (1, 'aaaa');
+
 end
 go

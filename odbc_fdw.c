@@ -1966,6 +1966,9 @@ List *
 odbcImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 {
 	elog_debug("Called odbcImportForeignSchema()");
+	elog_debug("stmt.server_name = %d", stmt.server_name);
+	elog_debug("stmt.remote_schema = %d", stmt.remote_schema);
+	elog_debug("stmt.local_schema = %d", stmt.local_schema);
 	//
 	/* TODO: review memory management in this function; any leaks? */
 	odbcFdwOptions options;
@@ -2034,6 +2037,8 @@ odbcImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 		check_return(ret, "Executing ODBC query to get schema", query_stmt, SQL_HANDLE_STMT);
 
 		SQLNumResultCols(query_stmt, &result_columns);
+
+		elog_debug("A total of %d columns were detected", result_columns);
 
 		initStringInfo(&col_str);
 		ColumnName = (SQLCHAR *) palloc(sizeof(SQLCHAR) * MAXIMUM_COLUMN_NAME_LEN);

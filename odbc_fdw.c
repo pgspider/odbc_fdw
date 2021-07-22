@@ -2021,7 +2021,7 @@ odbcImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 	if (!is_blank_string(options.sql_query))
 	{
 		/* Generate foreign table for a query */
-		elog_debug("Point B > options.sql_query = %s", sql_query);
+		elog_debug("Point B > options.sql_query = %s", options.sql_query);
 		if (is_blank_string(options.table))
 		{
 			elog(ERROR, "Must provide 'table' option to name the foreign table");

@@ -1966,9 +1966,9 @@ List *
 odbcImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 {
 	elog_debug("Called odbcImportForeignSchema()");
-	elog_debug("stmt.server_name = %d", stmt.server_name);
-	elog_debug("stmt.remote_schema = %d", stmt.remote_schema);
-	elog_debug("stmt.local_schema = %d", stmt.local_schema);
+	elog_debug("stmt.server_name = %d", stmt->server_name);
+	elog_debug("stmt.remote_schema = %d", stmt->remote_schema);
+	elog_debug("stmt.local_schema = %d", stmt->local_schema);
 	//
 	/* TODO: review memory management in this function; any leaks? */
 	odbcFdwOptions options;

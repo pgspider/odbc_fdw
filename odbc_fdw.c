@@ -1571,7 +1571,7 @@ odbcBeginForeignScan(ForeignScanState *node, int eflags)
 static TupleTableSlot *
 odbcIterateForeignScan(ForeignScanState *node)
 {
-	elog_debug("Called odbcIterateForeignScan")
+	elog_debug("Called odbcIterateForeignScan");
 	EState *executor_state = node->ss.ps.state;
 	MemoryContext prev_context;
 	/* ODBC API return status */
@@ -1965,7 +1965,7 @@ appendOption(StringInfo str, bool first, const char* option_name, const char* op
 List *
 odbcImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 {
-	elog_debug("Called odbcImportForeignSchema()")
+	elog_debug("Called odbcImportForeignSchema()");
 	//
 	/* TODO: review memory management in this function; any leaks? */
 	odbcFdwOptions options;
@@ -2040,7 +2040,7 @@ odbcImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 
 		for (i = 1; i <= result_columns; i++)
 		{
-			elog_debug("Iterating column %d of %d: %s", i, result_columns, ColumnName)
+			elog_debug("Iterating column %d of %d: %s", i, result_columns, ColumnName);
 			SQLDescribeCol(query_stmt,
 			               i,                       /* ColumnName */
 			               ColumnName,

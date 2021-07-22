@@ -1966,9 +1966,7 @@ List *
 odbcImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 {
 	elog_debug("Called odbcImportForeignSchema()");
-	elog_debug("stmt.server_name = %s", stmt->server_name);
-	elog_debug("stmt.remote_schema = %s", stmt->remote_schema);
-	elog_debug("stmt.local_schema = %s", stmt->local_schema);
+
 	//
 	/* TODO: review memory management in this function; any leaks? */
 	odbcFdwOptions options;
@@ -2010,6 +2008,7 @@ odbcImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 	if (schema_name == NULL)
 	{
 		schema_name = stmt->remote_schema;
+		elog_debug("Point A > schema_name = %s", schema_name);
 		missing_foreign_schema = true;
 	}
 	else if (is_blank_string(schema_name))
@@ -2022,6 +2021,7 @@ odbcImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 	if (!is_blank_string(options.sql_query))
 	{
 		/* Generate foreign table for a query */
+		elog_debug("Point B > options.sql_query = %s", sql_query);
 		if (is_blank_string(options.table))
 		{
 			elog(ERROR, "Must provide 'table' option to name the foreign table");

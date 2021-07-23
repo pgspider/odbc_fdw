@@ -2021,7 +2021,7 @@ odbcImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 	if (!is_blank_string(options.sql_query))
 	{
 		/* Generate foreign table for a query */
-		// elog_debug("Point B > options.sql_query = %s", options.sql_query);
+		elog_debug("Point B > options.sql_query = %s", options.sql_query);
 		if (is_blank_string(options.table))
 		{
 			elog(ERROR, "Must provide 'table' option to name the foreign table");
@@ -2035,7 +2035,7 @@ odbcImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 		/* Retrieve a list of rows */
 		ret = SQLExecDirect(query_stmt, (SQLCHAR *) options.sql_query, SQL_NTS);
 		check_return(ret, "Executing ODBC query to get schema", query_stmt, SQL_HANDLE_STMT);
-		// elog_debug("Running query %s", options.sql_query);
+		elog_debug("Running query %s", options.sql_query);
 
 		SQLNumResultCols(query_stmt, &result_columns);
 

@@ -1,22 +1,9 @@
 ODBC FDW for PostgreSQL 9.5+ 
 ============================
-[![Travis Build Status](https://travis-ci.org/CartoDB/odbc_fdw.svg?branch=master)](https://travis-ci.org/CartoDB/odbc_fdw)
-[![AppVeyor Build Status](https://ci.appveyor.com/api/projects/status/github/CartoDB/odbc_fdw?branch=master&svg=true)](https://ci.appveyor.com/project/alberhander/odbc-fdw "Get your fresh Windows build here!")
-
 This PostgreSQL extension implements a Foreign Data Wrapper (FDW) for
 remote databases using Open Database Connectivity [ODBC](http://msdn.microsoft.com/en-us/library/ms714562(v=VS.85).aspx).
 
-This was originally developed by Zheng Yang in 2011,
-with contributions by Gunnar "Nick" Bluth from 2014
-and further developed by CARTO since 2016.
-
-While we don’t provide direct technical support to Open Source
-installations, it is possible to engage in technical conversations
-with the community and part of the CARTO team (including some team
-members like Solutions, Support, Backend, and Frontend engineers) in
-our [Google Groups
-forum](https://groups.google.com/forum/#!forum/cartodb) and [GIS Stack
-Exchange](https://gis.stackexchange.com/questions/tagged/carto).
+This code is based on [`odbc_fdw`][1]created by CARTO, Gunnar "Nick" Bluth and Zheng Yang.
 
 Requirements
 ------------
@@ -118,6 +105,13 @@ Note that if the `prefix` option is used and only one specific foreign table is 
 the `table` option is necessary (to specify the unprefixed, remote table name). In this case
 it is better not to include a `LIMIT TO` clause (otherwise it has to reference the *prefixed* table name).
 
+The below options are used with a column in `CREATE FOREIGN TABLE` or `IMPORT FOREIGN SCHEMA` statements:
+
+option     | description
+---------- | -----------
+`column`   | The name of column to query. If this option is omitted, same name with the foreign table's is used.
+`key`      | The column with this option identifies each record in a table like primary keys.
+
 Example
 -------
 
@@ -182,33 +176,58 @@ IMPORT FOREIGN SCHEMA test
   );
 ```
 
+If you want to update tables, please add OPTIONS (key 'true') to a primary key or unique key like the following:
+
+```sql
+CREATE FOREIGN TABLE
+  odbc_table (
+    id integer OPTIONS (key 'true'),
+    name varchar(255),
+    desc text,
+    users float4,
+    createdtime timestamp
+  )
+  SERVER odbc_server
+  OPTIONS (
+    odbc_DATABASE 'myplace',
+    schema 'test',
+  );
+```
+
 LIMITATIONS
 -----------
 
 * Column, schema, table names should not be longer than the limit stablished by
   PostgreSQL ([NAMEDATALEN](https://www.postgresql.org/docs/9.5/static/sql-syntax-lexical.html#SQL-SYNTAX-IDENTIFIERS))
 * Only the following column types are currently fully suported:
-  - SQL_CHAR
-  - SQL_WCHAR
-  - SQL_VARCHAR
-  - SQL_WVARCHAR
-  - SQL_LONGVARCHAR
-  - SQL_WLONGVARCHAR
-  - SQL_DECIMAL
-  - SQL_NUMERIC
-  - SQL_INTEGER
-  - SQL_REAL
-  - SQL_FLOAT
-  - SQL_DOUBLE
-  - SQL_SMALLINT
-  - SQL_TINYINT
-  - SQL_BIGINT
-  - SQL_DATE
-  - SQL_TYPE_TIME
-  - SQL_TIME
-  - SQL_TIMESTAMP
-  - SQL_GUID
+
+type             | select | insert/update/delete
+-----------------|--------|-------
+SQL_CHAR         | x      | -
+SQL_WCHAR        | x      | -
+SQL_VARCHAR      | x      | x
+SQL_WVARCHAR     | x      | -
+SQL_LONGVARCHAR  | x      | -
+SQL_WLONGVARCHAR | x      | -
+SQL_DECIMAL      | x      | -
+SQL_NUMERIC      | x      | x
+SQL_INTEGER      | x      | x
+SQL_REAL         | x      | -
+SQL_FLOAT        | x      | -
+SQL_DOUBLE       | x      | x
+SQL_SMALLINT     | x      | x
+SQL_TINYINT      | x      | -
+SQL_BIGINT       | x      | x
+SQL_DATE         | x      | x
+SQL_TYPE_TIME    | x      | -
+SQL_TIME         | x      | x
+SQL_TIMESTAMP    | x      | x
+SQL_GUID         | x      | -
+
 * Foreign encodings are supported with the  `encoding` option
   for any enconding supported by PostgreSQL and compatible with the
   local database. The encoding must be identified with the
   name used by [PostgreSQL](https://www.postgresql.org/docs/9.5/static/multibyte.html).
+
+
+[1]:https://github.com/CartoDB/odbc_fdw

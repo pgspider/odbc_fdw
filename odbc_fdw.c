@@ -2,6 +2,7 @@
  *
  *        foreign-data wrapper for ODBC
  *
+ * Copyright (c) 2021, TOSHIBA Corporation
  * Copyright (c) 2011, PostgreSQL Global Development Group
  *
  * This software is released under the PostgreSQL Licence.
@@ -9,6 +10,8 @@
  * Author: Zheng Yang <zhengyang4k@gmail.com>
  * Updated to 9.2+ by Gunnar "Nick" Bluth <nick@pro-open.de>
  *   based on tds_fdw code from Geoff Montee
+ * Version 0.5.2.3-1 or higher
+ *   updated by Toshiba Corporation
  *
  * IDENTIFICATION
  *      odbc_fdw/odbc_fdw.c
@@ -47,6 +50,7 @@
 #include "nodes/makefuncs.h"
 #include "nodes/pg_list.h"
 
+#include "optimizer/appendinfo.h"
 #include "optimizer/pathnode.h"
 #include "optimizer/restrictinfo.h"
 #include "optimizer/planmain.h"
@@ -75,6 +79,14 @@
 #include <stdio.h>
 #include <sql.h>
 #include <sqlext.h>
+
+// for INSERT/UPDATE/DELETE
+#include "parser/parsetree.h"
+#include "utils/lsyscache.h"
+#include "utils/float.h"
+#include "utils/guc.h"
+#include "utils/date.h"
+#include "utils/datetime.h"
 
 PG_MODULE_MAGIC;
 
@@ -114,6 +126,28 @@ PG_MODULE_MAGIC;
 #define ODBC_SQLSTATE_LENGTH 5
 typedef enum { NO_TRUNCATION, FRACTIONAL_TRUNCATION, STRING_TRUNCATION } GetDataTruncation;
 
+#define IS_KEY_COLUMN(A)	((strcmp(A->defname, "key") == 0) && \
+							 (strcmp(((Value *)(A->arg))->val.str, "true") == 0))
+
+/*
+ * Similarly, this enum describes what's kept in the fdw_private list for
+ * a ModifyTable node referencing a odbc_fdw foreign table.  We store:
+ *
+ * 1) INSERT/UPDATE/DELETE statement text to be sent to the remote server
+ * 2) Integer list of target attribute numbers for INSERT/UPDATE
+ *	  (NIL for a DELETE)
+ * 3) Oid list of target type for INSERT/UPDATE
+ * 4) Boolean flag showing if the remote query has a RETURNING clause
+ * 5) Integer list of attribute numbers retrieved by RETURNING, if any
+ */
+enum OdbcFdwModifyPrivateIndex
+{
+	/* SQL statement to execute remotely (as a String node) */
+	OdbcFdwModifyPrivateUpdateSql,
+	/* Integer list of target attribute numbers for INSERT/UPDATE */
+	OdbcFdwModifyPrivateTargetAttnums,
+};
+
 typedef struct odbcFdwOptions
 {
 	char  *schema;     /* Foreign schema name */
@@ -124,17 +158,17 @@ typedef struct odbcFdwOptions
 	char  *encoding;   /* Character encoding name */
 
 	List *connection_list; /* ODBC connection attributes */
-
-	List  *mapping_list; /* Column name mapping */
 } odbcFdwOptions;
 
-typedef struct odbcFdwExecutionState
+typedef struct odbcFdwScanState
 {
 	AttInMetadata   *attinmeta;
 	odbcFdwOptions  options;
 	SQLHENV         env;
 	SQLHDBC         dbc;
 	SQLHSTMT        stmt;
+	char            *query;
+	bool            query_executed;
 	int             num_of_result_cols;
 	int             num_of_table_cols;
 	StringInfoData  *table_columns;
@@ -144,7 +178,25 @@ typedef struct odbcFdwExecutionState
 	List            *col_conversion_array;
 	char            *sql_count;
 	int             encoding;
-} odbcFdwExecutionState;
+} odbcFdwScanState;
+
+typedef struct odbcFdwModifyState
+{
+	odbcFdwOptions  options;
+	SQLHENV         env;
+	SQLHDBC         dbc;
+	SQLHSTMT        stmt;
+	char            *query;
+	List  	        *target_attrs;
+
+	/* info about parameters for prepared statement */
+	int			p_nums;			/* number of parameters to transmit */
+	FmgrInfo   *p_flinfo;		/* output conversion functions for them */
+
+	/* working memory context */
+	MemoryContext temp_cxt;		/* context for per-tuple temporary data */
+	AttrNumber *junk_idx;
+} odbcFdwModifyState;
 
 struct odbcFdwOption
 {
@@ -164,9 +216,10 @@ struct odbcFdwOption
 static struct odbcFdwOption valid_options[] =
 {
 	/* Foreign server options */
-	{ "dsn",        ForeignServerRelationId },
-	{ "driver",     ForeignServerRelationId },
-	{ "encoding",   ForeignServerRelationId },
+	{ "odbc_driver",     ForeignServerRelationId },
+	{ "odbc_server",     ForeignServerRelationId },
+	{ "odbc_port",     ForeignServerRelationId },
+	{ "odbc_database",     ForeignServerRelationId },
 
 	/* Foreign table options */
 	{ "schema",     ForeignTableRelationId },
@@ -174,6 +227,17 @@ static struct odbcFdwOption valid_options[] =
 	{ "prefix",     ForeignTableRelationId },
 	{ "sql_query",  ForeignTableRelationId },
 	{ "sql_count",  ForeignTableRelationId },
+
+	{ "column", AttributeRelationId },
+	{ "key", AttributeRelationId },
+
+	/* updatable is available on both server and table */
+	{"updatable", ForeignServerRelationId},
+	{"updatable", ForeignTableRelationId},
+
+	/* user mapping*/
+	{"odbc_uid", UserMappingRelationId},
+	{"odbc_pwd", UserMappingRelationId},
 
 	/* Sentinel */
 	{ NULL,       InvalidOid}
@@ -207,7 +271,7 @@ resize_buffer(char ** buffer, int *size, int used_size, int required_size)
 	if (required_size > *size)
 	{
 		int new_size = required_size; // TODO: use min increment size, maybe in relation to current size
-		char * new_buffer = (char *) palloc(new_size);
+		char * new_buffer = (char *) palloc0(new_size);
 		// TODO: out of memory error if !new_buffer
 		if (used_size > 0)
 		{
@@ -225,7 +289,7 @@ static char * binary_to_hex(char * buffer, int buffer_size)
 {
 	int i;
 	int hex_size = buffer_size*2;
-	char * hex = (char *) palloc(hex_size + 1);
+	char * hex = (char *) palloc0(hex_size + 1);
 	hex[hex_size] = 0;
 	for (i=0; i<buffer_size; i++)
 	{
@@ -265,6 +329,21 @@ static void odbcGetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, Oid fore
 static bool odbcAnalyzeForeignTable(Relation relation, AcquireSampleRowsFunc *func, BlockNumber *totalpages);
 static ForeignScan* odbcGetForeignPlan(PlannerInfo *root, RelOptInfo *baserel, Oid foreigntableid, ForeignPath *best_path, List *tlist, List *scan_clauses, Plan *outer_plan);
 List* odbcImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid);
+static List *odbcPlanForeignModify(PlannerInfo *root, ModifyTable *plan, Index resultRelation, int subplan_index);
+static void odbcBeginForeignModify(ModifyTableState *mtstate, ResultRelInfo *resultRelInfo, List *fdw_private, int subplan_index, int eflags);
+static void odbcEndForeignModify(EState *estate, ResultRelInfo *resultRelInfo);
+static TupleTableSlot *odbcExecForeignInsert(EState *estate, ResultRelInfo *resultRelInfo, TupleTableSlot *slot, TupleTableSlot *planSlot);
+#if (PG_VERSION_NUM < 140000)
+static void odbcAddForeignUpdateTargets(Query *parsetree, RangeTblEntry *target_rte, Relation target_relation);
+#else
+static void odbcAddForeignUpdateTargets(PlannerInfo *root, Index rtindex, RangeTblEntry *target_rte, Relation target_relation);
+#endif
+static TupleTableSlot *odbcExecForeignUpdate(EState *estate, ResultRelInfo *resultRelInfo, TupleTableSlot *slot, TupleTableSlot *planSlot);
+static TupleTableSlot *odbcExecForeignDelete(EState *estate, ResultRelInfo *resultRelInfo, TupleTableSlot *slot, TupleTableSlot *planSlot);
+static int	odbcIsForeignRelUpdatable(Relation rel);
+static void odbcExplainForeignModify(ModifyTableState *mtstate, ResultRelInfo *rinfo, List *fdw_private, int subplan_index, ExplainState *es);
+static void odbcBeginForeignInsert(ModifyTableState *mtstate, ResultRelInfo *resultRelInfo);
+static void odbcEndForeignInsert(EState *estate, ResultRelInfo *resultRelInfo);
 
 /*
  * helper functions
@@ -286,6 +365,26 @@ static void odbcConnStr(StringInfoData *conn_str, odbcFdwOptions* options);
 static char* get_schema_name(odbcFdwOptions *options);
 static inline bool is_blank_string(const char *s);
 static Oid oid_from_server_name(char *serverName);
+static odbcFdwModifyState *create_foreign_modify(EState *estate, ResultRelInfo *resultRelInfo, CmdType operation, Plan *subplan, char *query, List *target_attrs);
+static void finish_foreign_modify(odbcFdwModifyState *fmstate);
+static TupleTableSlot *execute_foreign_modify(EState *estate, ResultRelInfo *resultRelInfo, CmdType operation, TupleTableSlot *slot, TupleTableSlot *planSlot);
+static void bind_stmt_params(odbcFdwModifyState *fmstate, TupleTableSlot *slot);
+static void bind_stmt_param(odbcFdwModifyState *fmstate, Oid type, int attnum, Datum value);
+static void bindJunkColumnValue(odbcFdwModifyState *fmstate, TupleTableSlot *slot, TupleTableSlot *planSlot, Oid foreignTableId, int bindnum);
+static int	set_transmission_modes(void);
+static void reset_transmission_modes(int nestlevel);
+static void release_odbc_resources(odbcFdwModifyState *fmstate);
+static SQLRETURN validate_retrieved_string(SQLHSTMT stmt, SQLUSMALLINT ColumnNumber, const char *string_value, bool *is_mapped, bool *is_empty_retrieved_string);
+
+#define REL_ALIAS_PREFIX	"r"
+/* Handy macro to add relation name qualification */
+#define ADD_REL_QUALIFIER(buf, varno)	\
+		appendStringInfo((buf), "%s%d.", REL_ALIAS_PREFIX, (varno))
+static void deparseInsertSql(StringInfo buf, RangeTblEntry *rte, Index rtindex, Relation rel, List *targetAttrs, bool doNothing, List *withCheckOptionList, char *name_qualifier_char, char *quote_char);
+static void deparseUpdateSql(StringInfo buf, RangeTblEntry *rte, Index rtindex, Relation rel, List *attname, List *targetAttrs, List *withCheckOptionList, char *name_qualifier_char, char *quote_char);
+static void deparseDeleteSql(StringInfo buf, RangeTblEntry *rte, Index rtindex, Relation rel, List *name, char *name_qualifier_char, char *quote_char);
+static void deparseColumnRef(StringInfo buf, int varno, int varattno, RangeTblEntry *rte, bool qualify_col, char *quote_char);
+static void deparseRelation(StringInfo buf, Relation rel, char *name_qualifier_char, char *quote_char);
 
 /*
  * Check if string pointer is NULL or points to empty string
@@ -299,17 +398,50 @@ Datum
 odbc_fdw_handler(PG_FUNCTION_ARGS)
 {
 	FdwRoutine *fdwroutine = makeNode(FdwRoutine);
-	/* FIXME */
+	/* Functions for scanning foreign tables */
 	fdwroutine->GetForeignRelSize = odbcGetForeignRelSize;
 	fdwroutine->GetForeignPaths = odbcGetForeignPaths;
-	fdwroutine->AnalyzeForeignTable = odbcAnalyzeForeignTable;
 	fdwroutine->GetForeignPlan = odbcGetForeignPlan;
-	fdwroutine->ExplainForeignScan = odbcExplainForeignScan;
 	fdwroutine->BeginForeignScan = odbcBeginForeignScan;
 	fdwroutine->IterateForeignScan = odbcIterateForeignScan;
 	fdwroutine->ReScanForeignScan = odbcReScanForeignScan;
 	fdwroutine->EndForeignScan = odbcEndForeignScan;
+
+	/* Functions for updating foreign tables */
+	fdwroutine->AddForeignUpdateTargets = odbcAddForeignUpdateTargets;
+	fdwroutine->PlanForeignModify = odbcPlanForeignModify;
+	fdwroutine->BeginForeignModify = odbcBeginForeignModify;
+	fdwroutine->ExecForeignInsert = odbcExecForeignInsert;
+	fdwroutine->ExecForeignUpdate = odbcExecForeignUpdate;
+	fdwroutine->ExecForeignDelete = odbcExecForeignDelete;
+	fdwroutine->EndForeignModify = odbcEndForeignModify;
+	fdwroutine->BeginForeignInsert = odbcBeginForeignInsert;
+	fdwroutine->EndForeignInsert = odbcEndForeignInsert;
+	fdwroutine->IsForeignRelUpdatable = odbcIsForeignRelUpdatable;
+	fdwroutine->PlanDirectModify = NULL;
+	fdwroutine->BeginDirectModify = NULL;
+	fdwroutine->IterateDirectModify = NULL;
+	fdwroutine->EndDirectModify = NULL;
+
+	/* Function for EvalPlanQual rechecks */
+	fdwroutine->RecheckForeignScan = NULL;
+	/* Support functions for EXPLAIN */
+	fdwroutine->ExplainForeignScan = odbcExplainForeignScan;
+	fdwroutine->ExplainForeignModify = odbcExplainForeignModify;
+	fdwroutine->ExplainDirectModify = NULL;
+
+	/* Support functions for ANALYZE */
+	fdwroutine->AnalyzeForeignTable = odbcAnalyzeForeignTable;
+
+	/* Support functions for IMPORT FOREIGN SCHEMA */
 	fdwroutine->ImportForeignSchema = odbcImportForeignSchema;
+
+	/* Support functions for join push-down */
+	fdwroutine->GetForeignJoinPaths = NULL;
+
+	/* Support functions for upper relation push-down */
+	fdwroutine->GetForeignUpperPaths = NULL;
+
 	PG_RETURN_POINTER(fdwroutine);
 }
 
@@ -437,11 +569,6 @@ extract_odbcFdwOptions(List *options_list, odbcFdwOptions *extracted_options)
 			extracted_options->connection_list = lappend(extracted_options->connection_list, def);
 			continue;
 		}
-
-		/* Column mapping goes here */
-		/* TODO: is this useful? if so, how can columns names coincident
-		   with option names be escaped? */
-		extracted_options->mapping_list = lappend(extracted_options->mapping_list, def);
 	}
 }
 
@@ -467,15 +594,35 @@ odbc_connection(odbcFdwOptions* options, SQLHENV *env, SQLHDBC *dbc)
 	odbcConnStr(&conn_str, options);
 
 	/* Allocate an environment handle */
-	SQLAllocHandle(SQL_HANDLE_ENV, SQL_NULL_HANDLE, env);
+	ret = SQLAllocHandle(SQL_HANDLE_ENV, SQL_NULL_HANDLE, env);
+	check_return(ret, "Allocate hENV", NULL, SQL_INVALID_HANDLE);
 	/* We want ODBC 3 support */
-	SQLSetEnvAttr(*env, SQL_ATTR_ODBC_VERSION, (void *) SQL_OV_ODBC3, 0);
+	ret = SQLSetEnvAttr(*env, SQL_ATTR_ODBC_VERSION, (void *) SQL_OV_ODBC3, 0);
+	if (!SQL_SUCCEEDED(ret))
+	{
+		SQLFreeHandle(SQL_HANDLE_ENV, env);
+		env = NULL;
+	}
+	check_return(ret, "set ODBC version", NULL, SQL_INVALID_HANDLE);
 
 	/* Allocate a connection handle */
-	SQLAllocHandle(SQL_HANDLE_DBC, *env, dbc);
+	ret = SQLAllocHandle(SQL_HANDLE_DBC, *env, dbc);
+	if (!SQL_SUCCEEDED(ret))
+	{
+		SQLFreeHandle(SQL_HANDLE_ENV, env);
+		env = NULL;
+	}
+	check_return(ret, "Allocate hDBC", NULL, SQL_INVALID_HANDLE);
 	/* Connect to the DSN */
 	ret = SQLDriverConnect(*dbc, NULL, (SQLCHAR *) conn_str.data, SQL_NTS,
 	                       OutConnStr, 1024, &OutConnStrLen, SQL_DRIVER_COMPLETE);
+	if (!SQL_SUCCEEDED(ret))
+	{
+		SQLFreeHandle(SQL_HANDLE_DBC, dbc);
+		dbc = NULL;
+		SQLFreeHandle(SQL_HANDLE_ENV, env);
+		env = NULL;
+	}
 	check_return(ret, "Connecting to driver", dbc, SQL_HANDLE_DBC);
 	elog_debug("Connection opened");
 }
@@ -494,10 +641,12 @@ odbc_disconnection(SQLHENV *env, SQLHDBC *dbc)
 		check_return(ret, "dbc disconnect", *dbc, SQL_HANDLE_DBC);
 		ret = SQLFreeHandle(SQL_HANDLE_DBC, *dbc);
 		check_return(ret, "dbc free handle", *dbc, SQL_HANDLE_DBC);
+		dbc = NULL;
 		if (*env)
 		{
 			ret = SQLFreeHandle(SQL_HANDLE_ENV, *env);
 			check_return(ret, "env free handle", *env, SQL_HANDLE_ENV);
+			env = NULL;
 		}
 	}
 	elog_debug("Connection closed");
@@ -778,6 +927,9 @@ odbcGetTableOptions(Oid foreigntableid, odbcFdwOptions *extracted_options)
 
 	table = GetForeignTable(foreigntableid);
 	odbcGetOptions(table->serverid, table->options, extracted_options);
+
+	if (is_blank_string(extracted_options->table))
+		extracted_options->table = get_rel_name(foreigntableid);
 }
 
 #define MAX_ERROR_MSG_LENGTH 512
@@ -799,19 +951,16 @@ check_return(SQLRETURN ret, char *msg, SQLHANDLE handle, SQLSMALLINT type)
 
 	if (!SQL_SUCCEEDED(ret))
 	{
-		#ifdef DEBUG
-		elog(DEBUG1, "Error result (%d): %s", ret, error_msg);
-		#endif
+		elog_debug("Error result (%d): %s", ret, error_msg);
 		if (handle)
 		{
 			do
 			{
 				diag_ret = SQLGetDiagRec(type, handle, ++i, state, &native, text,
 				                         sizeof(text), &len );
-				if (SQL_SUCCEEDED(diag_ret)) {
-					#ifdef DEBUG
-					elog(DEBUG1, " %s:%ld:%ld:%s\n", state, (long int) i, (long int) native, text);
-					#endif
+				if (SQL_SUCCEEDED(diag_ret))
+				{
+					elog_debug(" %s:%ld:%ld:%s\n", state, (long int) i, (long int) native, text);
 					strncat(error_msg, ERROR_MSG_SEP, MAX_ERROR_MSG_LENGTH - strlen(ERROR_MSG_SEP));
 					strncat(error_msg, (char *)text, MAX_ERROR_MSG_LENGTH - strlen(error_msg));
 				}
@@ -1042,10 +1191,10 @@ odbc_table_size(PG_FUNCTION_ARGS)
 #else
 	DefElem *elem = (DefElem *) makeDefElem(defname, val);
 #endif
-
-	tableOptions = lappend(tableOptions, elem);
 	Oid serverOid = oid_from_server_name(serverName);
 	odbcFdwOptions options;
+
+	tableOptions = lappend(tableOptions, elem);
 	odbcGetOptions(serverOid, tableOptions, &options);
 	odbcGetTableSize(&options, &tableSize);
 
@@ -1066,10 +1215,11 @@ odbc_query_size(PG_FUNCTION_ARGS)
 #else
 	DefElem *elem = (DefElem *) makeDefElem(defname, val);
 #endif
+	Oid serverOid;
+	odbcFdwOptions options;
 
 	queryOptions = lappend(queryOptions, elem);
-	Oid serverOid = oid_from_server_name(serverName);
-	odbcFdwOptions options;
+	serverOid = oid_from_server_name(serverName);
 	odbcGetOptions(serverOid, queryOptions, &options);
 	odbcGetTableSize(&options, &querySize);
 
@@ -1101,35 +1251,39 @@ typedef struct {
 
 Datum odbc_tables_list(PG_FUNCTION_ARGS)
 {
-	SQLHENV env;
-	SQLHDBC dbc;
-	SQLHSTMT stmt;
+	SQLHENV		env;
+	SQLHDBC		dbc;
+	SQLHSTMT	stmt;
 	SQLUSMALLINT i;
 	SQLUSMALLINT numColumns = 5;
 	SQLUSMALLINT bufferSize = 1024;
 	SQLUINTEGER rowLimit;
 	SQLUINTEGER currentRow;
-	SQLRETURN retCode;
+	SQLRETURN	retCode;
 
 	FuncCallContext *funcctx;
-	TupleDesc tupdesc;
+	TupleDesc	tupdesc;
 	TableDataCtx *datafctx;
-	DataBinding* tableResult;
+	DataBinding *tableResult;
 	AttInMetadata *attinmeta;
 
 	if (SRF_IS_FIRSTCALL()) {
-		funcctx = SRF_FIRSTCALL_INIT();
-		MemoryContext oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
-		datafctx = (TableDataCtx *) palloc(sizeof(TableDataCtx));
-		tableResult = (DataBinding*) palloc( numColumns * sizeof(DataBinding) );
+		MemoryContext oldcontext;
+		char   *serverName;
+		int		serverOid;
+		odbcFdwOptions options;
 
-		char *serverName = text_to_cstring(PG_GETARG_TEXT_PP(0));
-		int serverOid = oid_from_server_name(serverName);
+		funcctx = SRF_FIRSTCALL_INIT();
+		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+		datafctx = (TableDataCtx *) palloc0(sizeof(TableDataCtx));
+		tableResult = (DataBinding*) palloc0( numColumns * sizeof(DataBinding) );
+
+		serverName = text_to_cstring(PG_GETARG_TEXT_PP(0));
+		serverOid = oid_from_server_name(serverName);
 
 		rowLimit = PG_GETARG_INT32(1);
 		currentRow = 0;
 
-		odbcFdwOptions options;
 		odbcGetOptions(serverOid, NULL, &options);
 		odbc_connection(&options, &env, &dbc);
 		SQLAllocHandle(SQL_HANDLE_STMT, dbc, &stmt);
@@ -1137,7 +1291,7 @@ Datum odbc_tables_list(PG_FUNCTION_ARGS)
 		for ( i = 0 ; i < numColumns ; i++ ) {
 			tableResult[i].TargetType = SQL_C_CHAR;
 			tableResult[i].BufferLength = (bufferSize + 1);
-			tableResult[i].TargetValuePtr = palloc( sizeof(char)*tableResult[i].BufferLength );
+			tableResult[i].TargetValuePtr = palloc0( sizeof(char)*tableResult[i].BufferLength );
 		}
 
 		for ( i = 0 ; i < numColumns ; i++ ) {
@@ -1180,9 +1334,9 @@ Datum odbc_tables_list(PG_FUNCTION_ARGS)
 		HeapTuple    tuple;
 		Datum        result;
 
-		values = (char **) palloc(2 * sizeof(char *));
-		values[0] = (char *) palloc(256 * sizeof(char));
-		values[1] = (char *) palloc(256 * sizeof(char));
+		values = (char **) palloc0(2 * sizeof(char *));
+		values[0] = (char *) palloc0(256 * sizeof(char));
+		values[1] = (char *) palloc0(256 * sizeof(char));
 		snprintf(values[0], 256, "%s", (char *)tableResult[SQLTABLES_SCHEMA_COLUMN-1].TargetValuePtr);
 		snprintf(values[1], 256, "%s", (char *)tableResult[SQLTABLES_NAME_COLUMN-1].TargetValuePtr);
 		tuple = BuildTupleFromCStrings(attinmeta, values);
@@ -1191,6 +1345,7 @@ Datum odbc_tables_list(PG_FUNCTION_ARGS)
 		datafctx->currentRow = currentRow;
 		SRF_RETURN_NEXT(funcctx, result);
 	} else {
+		SQLFreeHandle(SQL_HANDLE_STMT, &stmt);
 		odbc_disconnection(&datafctx->env, &datafctx->dbc);
 		SRF_RETURN_DONE(funcctx);
 	}
@@ -1288,17 +1443,7 @@ odbcIsValidOption(const char *option, Oid context)
 			return true;
 	}
 
-	/* ODBC attributes are valid in any context */
-	if (is_odbc_attribute(option))
-	{
-		return true;
-	}
-
-	/* Foreign table may have anything as a mapping option */
-	if (context == ForeignTableRelationId)
-		return true;
-	else
-		return false;
+	return false;
 }
 
 static void odbcGetForeignRelSize(PlannerInfo *root, RelOptInfo *baserel, Oid foreigntableid)
@@ -1355,7 +1500,7 @@ static void odbcGetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, Oid fore
 	                 startup_cost,
 	                 total_cost,
 	                 NIL, /* no pathkeys */
-	                 NULL, /* no outer rel either */
+	                 baserel->lateral_relids,
 	                 NULL, /* no extra plan */
 	                 NIL /* no fdw_private list */));
 
@@ -1395,36 +1540,20 @@ odbcBeginForeignScan(ForeignScanState *node, int eflags)
 {
 	SQLHENV env;
 	SQLHDBC dbc;
-	odbcFdwExecutionState   *festate;
-	SQLSMALLINT result_columns;
-	SQLHSTMT stmt;
-	SQLRETURN ret;
-
-#ifdef DEBUG
-	char dsn[256];
-	char desc[256];
-	SQLSMALLINT dsn_ret;
-	SQLSMALLINT desc_ret;
-	SQLUSMALLINT direction;
-#endif
-
+	odbcFdwScanState *festate;
 	odbcFdwOptions options;
-
 	Relation rel;
 	int num_of_columns;
 	StringInfoData *columns;
 	int i;
-	ListCell *col_mapping;
 	StringInfoData sql;
 	StringInfoData col_str;
 	StringInfoData name_qualifier_char;
 	StringInfoData quote_char;
-
 	char *qual_key         = NULL;
 	char *qual_value       = NULL;
 	bool pushdown          = false;
-
-	const char* schema_name;
+	const char *schema_name;
 	int encoding = -1;
 
 	elog_debug("%s", __func__);
@@ -1457,24 +1586,28 @@ odbcBeginForeignScan(ForeignScanState *node, int eflags)
 	/* Fetch the table column info */
 	rel = table_open(RelationGetRelid(node->ss.ss_currentRelation), AccessShareLock);
 	num_of_columns = rel->rd_att->natts;
-	columns = (StringInfoData *) palloc(sizeof(StringInfoData) * num_of_columns);
+	columns = (StringInfoData *) palloc0(sizeof(StringInfoData) * num_of_columns);
 	initStringInfo(&col_str);
 	for (i = 0; i < num_of_columns; i++)
 	{
 		StringInfoData col;
 		StringInfoData mapping;
 		bool    mapped;
+		List* options = NULL;
+		ListCell* lc;
 
 		/* retrieve the column name */
 		initStringInfo(&col);
 		appendStringInfo(&col, "%s", NameStr(TupleDescAttr(rel->rd_att,i)->attname));
 		mapped = false;
 
-		/* check if the column name is mapping to a different name in remote table */
-		foreach(col_mapping, options.mapping_list)
-		{
-			DefElem *def = (DefElem *) lfirst(col_mapping);
-			if (strcmp(def->defname, col.data) == 0)
+		elog(DEBUG1, "columns:%d/%d attname:%s", i, rel->rd_att->natts, rel->rd_att->attrs[i].attname.data);
+		options = GetForeignColumnOptions(rel->rd_att->attrs[i].attrelid, rel->rd_att->attrs[i].attnum);
+		foreach(lc, options){
+			DefElem    *def = (DefElem *) lfirst(lc);
+			elog(DEBUG1, "defname %s", def->defname);
+
+			if (strcmp(def->defname, "column") == 0)
 			{
 				initStringInfo(&mapping);
 				appendStringInfo(&mapping, "%s", defGetString(def));
@@ -1497,13 +1630,16 @@ odbcBeginForeignScan(ForeignScanState *node, int eflags)
 	{
 #if PG_VERSION_NUM >= 100000
 		ExprState  *state = node->ss.ps.qual;
-		odbcGetQual((Node *) state->expr, node->ss.ss_currentRelation->rd_att, options.mapping_list, &qual_key, &qual_value, &pushdown);
+
+		odbcGetQual((Node *) state->expr, node->ss.ss_currentRelation->rd_att, NULL, &qual_key, &qual_value, &pushdown);
 #else
 		ListCell    *lc;
+
 		foreach (lc, node->ss.ps.qual)
 		{
 			/* Only the first qual can be pushed down to remote DBMS */
 			ExprState  *state = lfirst(lc);
+
 			odbcGetQual((Node *) state->expr, node->ss.ss_currentRelation->rd_att, options.mapping_list, &qual_key, &qual_value, &pushdown);
 			if (pushdown)
 				break;
@@ -1540,25 +1676,16 @@ odbcBeginForeignScan(ForeignScanState *node, int eflags)
 		}
 	}
 
-	/* Allocate a statement handle */
-	SQLAllocHandle(SQL_HANDLE_STMT, dbc, &stmt);
-
-	elog_debug("Executing query: %s", sql.data);
-
-	/* Retrieve a list of rows */
-	ret = SQLExecDirect(stmt, (SQLCHAR *) sql.data, SQL_NTS);
-	check_return(ret, "Executing ODBC query", stmt, SQL_HANDLE_STMT);
-	SQLNumResultCols(stmt, &result_columns);
-
-	festate = (odbcFdwExecutionState *) palloc(sizeof(odbcFdwExecutionState));
+	festate = (odbcFdwScanState *) palloc0(sizeof(odbcFdwScanState));
 	festate->attinmeta = TupleDescGetAttInMetadata(node->ss.ss_currentRelation->rd_att);
 	copy_odbcFdwOptions(&(festate->options), &options);
 	festate->env = env;
 	festate->dbc = dbc;
-	festate->stmt = stmt;
+	festate->query = sql.data;
+	festate->query_executed = false;
 	festate->table_columns = columns;
 	festate->num_of_table_cols = num_of_columns;
-	/* prepare for the first iteration, there will be some precalculation needed in the first iteration*/
+	/* prepare for the first iteration, there will be some precalculation needed in the first iteration */
 	festate->first_iteration = true;
 	festate->encoding = encoding;
 	node->fdw_state = (void *) festate;
@@ -1575,13 +1702,13 @@ odbcIterateForeignScan(ForeignScanState *node)
 	MemoryContext prev_context;
 	/* ODBC API return status */
 	SQLRETURN ret;
-	odbcFdwExecutionState *festate = (odbcFdwExecutionState *) node->fdw_state;
+	odbcFdwScanState *festate = (odbcFdwScanState *) node->fdw_state;
 	TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
 	SQLSMALLINT columns;
 	char    **values;
 	HeapTuple   tuple;
 	StringInfoData  col_data;
-	SQLHSTMT stmt = festate->stmt;
+	SQLHSTMT stmt;
 	bool first_iteration = festate->first_iteration;
 	int num_of_table_cols = festate->num_of_table_cols;
 	int num_of_result_cols;
@@ -1591,6 +1718,21 @@ odbcIterateForeignScan(ForeignScanState *node)
 	List *col_conversion_array = NIL;
 
 	elog_debug("%s", __func__);
+
+	if (!festate->query_executed)
+	{
+		/* Allocate a statement handle */
+		SQLAllocHandle(SQL_HANDLE_STMT, festate->dbc, &stmt);
+
+		elog_debug("Executing query: %s", festate->query);
+		/* Retrieve a list of rows */
+		ret = SQLExecDirect(stmt, (SQLCHAR *) festate->query, SQL_NTS);
+		check_return(ret, "Executing ODBC query", stmt, SQL_HANDLE_STMT);
+		festate->query_executed = true;
+		festate->stmt = stmt;
+	}
+	else
+		stmt = festate->stmt;
 
 	ret = SQLFetch(stmt);
 
@@ -1614,8 +1756,10 @@ odbcIterateForeignScan(ForeignScanState *node)
 
 		StringInfoData sql_type;
 
-		/* Allocate memory for the masks in a memory context that
-		   persists between IterateForeignScan calls */
+		/*
+		 * Allocate memory for the masks in a memory context that
+		 * persists between IterateForeignScan calls
+		 */
 		prev_context = MemoryContextSwitchTo(executor_state->es_query_cxt);
 		col_position_mask = NIL;
 		col_size_array = NIL;
@@ -1626,7 +1770,7 @@ odbcIterateForeignScan(ForeignScanState *node)
 		{
 			ColumnConversion conversion = TEXT_CONVERSION;
 			found = false;
-			ColumnName = (SQLCHAR *) palloc(sizeof(SQLCHAR) * MAXIMUM_COLUMN_NAME_LEN);
+			ColumnName = (SQLCHAR *) palloc0(sizeof(SQLCHAR) * MAXIMUM_COLUMN_NAME_LEN);
 			SQLDescribeCol(stmt,
 			               i,                       /* ColumnName */
 			               ColumnName,
@@ -1695,11 +1839,12 @@ odbcIterateForeignScan(ForeignScanState *node)
 		col_conversion_array = festate->col_conversion_array;
 	}
 
+	/* Clear tuple to terminate Iteration loop when no more data can be fetched */
 	ExecClearTuple(slot);
 	if (SQL_SUCCEEDED(ret))
 	{
 		SQLSMALLINT i;
-		values = (char **) palloc(sizeof(char *) * columns);
+		values = (char **) palloc0(sizeof(char *) * columns);
 
 		/* Loop through the columns */
 		for (i = 1; i <= columns; i++)
@@ -1849,10 +1994,11 @@ odbcIterateForeignScan(ForeignScanState *node)
 		}
 
 		tuple = BuildTupleFromCStrings(festate->attinmeta, values);
+		if (tuple)
 #if PG_VERSION_NUM < 120000
-		ExecStoreTuple(tuple, slot, InvalidBuffer, false);
+			ExecStoreTuple(tuple, slot, InvalidBuffer, false);
 #else
-		ExecStoreHeapTuple(tuple, slot, false);
+			ExecStoreHeapTuple(tuple, slot, false);
 #endif
 		pfree(values);
 	}
@@ -1867,12 +2013,10 @@ odbcIterateForeignScan(ForeignScanState *node)
 static void
 odbcExplainForeignScan(ForeignScanState *node, ExplainState *es)
 {
-	odbcFdwExecutionState *festate;
+	odbcFdwScanState *festate = (odbcFdwScanState *) node->fdw_state;
 	unsigned int table_size = 0;
 
 	elog_debug("%s", __func__);
-
-	festate = (odbcFdwExecutionState *) node->fdw_state;
 
 	odbcGetTableSize(&(festate->options), &table_size);
 
@@ -1885,6 +2029,12 @@ odbcExplainForeignScan(ForeignScanState *node, ExplainState *es)
 		ExplainPropertyLong("Foreign Table Size", table_size, es);
 #endif
 	}
+
+	/*
+	 * Add remote query, when VERBOSE option is specified.
+	 */
+	if (es->verbose)
+		ExplainPropertyText("Remote SQL", festate->query, es);
 }
 
 /*
@@ -1894,12 +2044,11 @@ odbcExplainForeignScan(ForeignScanState *node, ExplainState *es)
 static void
 odbcEndForeignScan(ForeignScanState *node)
 {
-	odbcFdwExecutionState *festate;
+	odbcFdwScanState *festate = (odbcFdwScanState *) node->fdw_state;
 
 	elog_debug("%s", __func__);
 
-	/* if festate is NULL, we are in EXPLAIN; nothing to do */
-	festate = (odbcFdwExecutionState *) node->fdw_state;
+	/* if festate is NULL, nothing to do */
 	if (festate)
 	{
 		if (festate->stmt)
@@ -1918,7 +2067,19 @@ odbcEndForeignScan(ForeignScanState *node)
 static void
 odbcReScanForeignScan(ForeignScanState *node)
 {
+	odbcFdwScanState *festate = (odbcFdwScanState *) node->fdw_state;
+
 	elog_debug("%s", __func__);
+
+	if (festate->stmt)
+	{
+		SQLFreeHandle(SQL_HANDLE_STMT, festate->stmt);
+	}
+	/*
+	 * Set the query_executed flag to false so that the query will be executed
+	 * in odbcIterateForeignScan().
+	 */
+	festate->query_executed = false;
 }
 
 
@@ -1976,7 +2137,7 @@ odbcImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 
 	SQLHENV env;
 	SQLHDBC dbc;
-	SQLHSTMT query_stmt;
+	SQLHSTMT query_stmt = NULL;
 	SQLHSTMT columns_stmt;
 	SQLHSTMT tables_stmt;
 	SQLRETURN ret;
@@ -1987,6 +2148,7 @@ odbcImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 	SQLSMALLINT NameLength;
 	SQLSMALLINT DataType;
 	SQLULEN     ColumnSize;
+	SQLINTEGER	ColumnSizeInt;
 	SQLSMALLINT DecimalDigits;
 	SQLSMALLINT Nullable;
 	int i;
@@ -1995,6 +2157,7 @@ odbcImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 	const char* schema_name;
 	bool missing_foreign_schema = false;
 	bool first_column = true;
+	bool use_table_catalog = false;
 
 	elog_debug("%s", __func__);
 
@@ -2022,51 +2185,58 @@ odbcImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 		}
 
 		odbc_connection(&options, &env, &dbc);
-
-		/* Allocate a statement handle */
-		SQLAllocHandle(SQL_HANDLE_STMT, dbc, &query_stmt);
-
-		/* Retrieve a list of rows */
-		ret = SQLExecDirect(query_stmt, (SQLCHAR *) options.sql_query, SQL_NTS);
-		check_return(ret, "Executing ODBC query to get schema", query_stmt, SQL_HANDLE_STMT);
-
-		SQLNumResultCols(query_stmt, &result_columns);
-
-		initStringInfo(&col_str);
-		ColumnName = (SQLCHAR *) palloc(sizeof(SQLCHAR) * MAXIMUM_COLUMN_NAME_LEN);
-
-		for (i = 1; i <= result_columns; i++)
+		PG_TRY();
 		{
-			SQLDescribeCol(query_stmt,
-			               i,                       /* ColumnName */
-			               ColumnName,
-			               sizeof(SQLCHAR) * MAXIMUM_COLUMN_NAME_LEN, /* BufferLength */
-			               &NameLength,
-			               &DataType,
-			               &ColumnSize,
-			               &DecimalDigits,
-			               &Nullable);
+			/* Allocate a statement handle */
+			ret = SQLAllocHandle(SQL_HANDLE_STMT, dbc, &query_stmt);
+			check_return(ret, "SQLAllocHandle", query_stmt, SQL_HANDLE_STMT);
 
-			sql_data_type(DataType, ColumnSize, DecimalDigits, Nullable, &sql_type);
-			if (is_blank_string(sql_type.data))
-			{
-				elog(NOTICE, "Data type not supported (%d) for column %s", DataType, ColumnName);
-				continue;
-			}
-			if (!first_column)
-			{
-				appendStringInfo(&col_str, ", ");
-			}
-			else
-			{
-				first_column = false;
-			}
+			/* Retrieve a list of rows */
+			ret = SQLExecDirect(query_stmt, (SQLCHAR *) options.sql_query, SQL_NTS);
+			check_return(ret, "Executing ODBC query to get schema", query_stmt, SQL_HANDLE_STMT);
 
-			appendStringInfo(&col_str, "\"%s\" %s", ColumnName, (char *) sql_type.data);
+			SQLNumResultCols(query_stmt, &result_columns);
+
+			initStringInfo(&col_str);
+			ColumnName = (SQLCHAR *) palloc0(sizeof(SQLCHAR) * MAXIMUM_COLUMN_NAME_LEN);
+
+			for (i = 1; i <= result_columns; i++)
+			{
+				SQLDescribeCol(query_stmt,
+							i,                       /* ColumnName */
+							ColumnName,
+							sizeof(SQLCHAR) * MAXIMUM_COLUMN_NAME_LEN, /* BufferLength */
+							&NameLength,
+							&DataType,
+							&ColumnSize,
+							&DecimalDigits,
+							&Nullable);
+
+				sql_data_type(DataType, ColumnSize, DecimalDigits, Nullable, &sql_type);
+				if (is_blank_string(sql_type.data))
+				{
+					elog(NOTICE, "Data type not supported (%d) for column %s", DataType, ColumnName);
+					continue;
+				}
+				if (!first_column)
+				{
+					appendStringInfo(&col_str, ", ");
+				}
+				else
+				{
+					first_column = false;
+				}
+
+				appendStringInfo(&col_str, "\"%s\" %s", ColumnName, (char *) sql_type.data);
+			}
+			SQLCloseCursor(query_stmt);
 		}
-		SQLCloseCursor(query_stmt);
-		SQLFreeHandle(SQL_HANDLE_STMT, query_stmt);
-		odbc_disconnection(&env, &dbc);
+		PG_FINALLY();
+		{
+			SQLFreeHandle(SQL_HANDLE_STMT, query_stmt);
+			odbc_disconnection(&env, &dbc);
+		}
+		PG_END_TRY();
 
 		tables        = lappend(tables, (void*)options.table);
 		table_columns = lappend(table_columns, (void*)col_str.data);
@@ -2080,93 +2250,111 @@ odbcImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 		}
 		else if (stmt->list_type == FDW_IMPORT_SCHEMA_ALL || stmt->list_type == FDW_IMPORT_SCHEMA_EXCEPT)
 		{
-			/* Will obtain the foreign tables with SQLTables() */
-
-			SQLCHAR *table_schema = (SQLCHAR *) palloc(sizeof(SQLCHAR) * MAXIMUM_SCHEMA_NAME_LEN);
-
 			odbc_connection(&options, &env, &dbc);
-
-			/* Allocate a statement handle */
-			SQLAllocHandle(SQL_HANDLE_STMT, dbc, &tables_stmt);
-
-			ret = SQLTables(
-			          tables_stmt,
-			          NULL, 0, /* Catalog: (SQLCHAR*)SQL_ALL_CATALOGS, SQL_NTS would include also tables from internal catalogs */
-			          NULL, 0, /* Schema: we avoid filtering by schema here to avoid problems with some drivers */
-			          NULL, 0, /* Table */
-			          (SQLCHAR*)"TABLE", SQL_NTS /* Type of table (we're not interested in views, temporary tables, etc.) */
-			      );
-			check_return(ret, "Obtaining ODBC tables", tables_stmt, SQL_HANDLE_STMT);
-
-			initStringInfo(&col_str);
-			while (SQL_SUCCESS == ret)
+			PG_TRY();
 			{
-				ret = SQLFetch(tables_stmt);
-				if (SQL_SUCCESS == ret)
+				/* Allocate a statement handle */
+				ret = SQLAllocHandle(SQL_HANDLE_STMT, dbc, &tables_stmt);
+				check_return(ret, "SQLAllocHandle", tables_stmt, SQL_HANDLE_STMT);
+
+				ret = SQLTables(
+						tables_stmt,
+						NULL, 0, /* Catalog: (SQLCHAR*)SQL_ALL_CATALOGS, SQL_NTS would include also tables from internal catalogs */
+						NULL, 0, /* Schema: we avoid filtering by schema here to avoid problems with some drivers */
+						NULL, 0, /* Table */
+						(SQLCHAR*)"TABLE", SQL_NTS /* Type of table (we're not interested in views, temporary tables, etc.) */
+					);
+				check_return(ret, "Obtaining ODBC tables", tables_stmt, SQL_HANDLE_STMT);
+
+				ret = SQL_SUCCESS;
+				initStringInfo(&col_str);
+				while (SQL_SUCCESS == ret)
 				{
-					int excluded = false;
-					SQLRETURN getdata_ret;
-					TableName = (SQLCHAR *) palloc(sizeof(SQLCHAR) * MAXIMUM_TABLE_NAME_LEN);
-					getdata_ret = SQLGetData(tables_stmt, SQLTABLES_NAME_COLUMN, SQL_C_CHAR, TableName, MAXIMUM_TABLE_NAME_LEN, &indicator);
-					check_return(getdata_ret, "Reading table name", tables_stmt, SQL_HANDLE_STMT);
+					ret = SQLFetch(tables_stmt);
+					if (SQL_SUCCESS == ret)
+					{
+						int excluded = false;
+						SQLRETURN getdata_ret;
+						bool	is_empty_retrieved_string = false;
+						bool	is_mapped = false;
 
-					/* Since we're not filtering the SQLTables call by schema
-					   we must exclude here tables that belong to other schemas.
-					   For some ODBC drivers tables may not be organized into
-					   schemas and the schema of the table will be blank.
-					   So we only reject tables for which the schema is not
-					   blank and different from the desired schema:
-					 */
-					getdata_ret = SQLGetData(tables_stmt, SQLTABLES_SCHEMA_COLUMN, SQL_C_CHAR, table_schema, MAXIMUM_SCHEMA_NAME_LEN, &indicator);
-					if (SQL_SUCCESS == getdata_ret)
-					{
-						if (!is_blank_string((char*)table_schema) && strcmp((char*)table_schema, schema_name) )
-						{
-							excluded = true;
-						}
-					}
-					else
-					{
-						/* Some drivers don't support schemas and may return an error code here;
-						 * in that case we must avoid using an schema to query the table columns.
+						TableName = (SQLCHAR *) palloc0(sizeof(SQLCHAR) * MAXIMUM_TABLE_NAME_LEN);
+						getdata_ret = SQLGetData(tables_stmt, SQLTABLES_NAME_COLUMN, SQL_C_CHAR, TableName, MAXIMUM_TABLE_NAME_LEN, &indicator);
+						check_return(getdata_ret, "Reading table name", tables_stmt, SQL_HANDLE_STMT);
+
+						/* Since we're not filtering the SQLTables call by schema
+						 * we must exclude here tables that belong to other schemas.
+						 * For some ODBC drivers tables may not be organized into
+						 * schemas and the schema of the table will be blank.
+						 * So we only reject tables for which the schema is not
+						 * blank and different from the desired schema.
 						 */
-						schema_name = NULL;
-						missing_foreign_schema = false;
-					}
 
-					/* Since we haven't specified SQL_ALL_CATALOGS in the
-					   call to SQLTables we shouldn't get tables from special
-					   catalogs and only from the regular catalog of the database
-					   (the catalog name is usually the name of the database or blank,
-					   but depends on the driver and may vary, and can be obtained with:
-					     SQLCHAR *table_catalog = (SQLCHAR *) palloc(sizeof(SQLCHAR) * MAXIMUM_CATALOG_NAME_LEN);
-					     SQLGetData(tables_stmt, 1, SQL_C_CHAR, table_catalog, MAXIMUM_CATALOG_NAME_LEN, &indicator);
-					 */
+						/* check schema name with table schema */
+						getdata_ret = validate_retrieved_string(tables_stmt, SQLTABLES_SCHEMA_COLUMN, schema_name, &is_mapped, &is_empty_retrieved_string);
 
-					/* And now we'll handle tables excluded by an EXCEPT clause */
-					if (!excluded && stmt->list_type == FDW_IMPORT_SCHEMA_EXCEPT)
-					{
-						foreach(tables_cell,  stmt->table_list)
+						if ( getdata_ret == SQL_SUCCESS && is_empty_retrieved_string == true)
 						{
-							table_rangevar = (RangeVar*)lfirst(tables_cell);
-							if (strcmp((char*)TableName, table_rangevar->relname) == 0)
+							/* if can not compare with table schema, try to compare with table catalog */
+							getdata_ret = validate_retrieved_string(tables_stmt, SQLTables_TABLE_CATALOG, schema_name, &is_mapped, &is_empty_retrieved_string);
+							if (getdata_ret == SQL_SUCCESS && is_empty_retrieved_string == false)
 							{
-								excluded = true;
+								use_table_catalog = true;
 							}
 						}
-					}
+						if (getdata_ret == SQL_SUCCESS)
+						{
+							/* if schema name is not mapped with table schema or table catalog,
+							 * set excluded = true to remove it from table list
+							 */
+							if (is_mapped == false)
+								excluded = true;
+						}
+						else
+						{
+							/* Some drivers don't support schemas and may return an error code here;
+							 * in that case we must avoid using an schema to query the table columns.
+							 */
+							schema_name = NULL;
+							missing_foreign_schema = false;
+						}
+						/* Since we haven't specified SQL_ALL_CATALOGS in the
+						 * call to SQLTables we shouldn't get tables from special
+						 * catalogs and only from the regular catalog of the database
+						 * (the catalog name is usually the name of the database or blank,
+						 * but depends on the driver and may vary, and can be obtained with:
+						 * 	SQLCHAR *table_catalog = (SQLCHAR *) palloc0(sizeof(SQLCHAR) * MAXIMUM_CATALOG_NAME_LEN);
+						 * 	SQLGetData(tables_stmt, 1, SQL_C_CHAR, table_catalog, MAXIMUM_CATALOG_NAME_LEN, &indicator);
+						 */
 
-					if (!excluded)
-					{
-						tables = lappend(tables, (void*)TableName);
+						/* And now we'll handle tables excluded by an EXCEPT clause */
+						if (!excluded && stmt->list_type == FDW_IMPORT_SCHEMA_EXCEPT)
+						{
+							foreach(tables_cell,  stmt->table_list)
+							{
+								table_rangevar = (RangeVar*)lfirst(tables_cell);
+								if (strcmp((char*)TableName, table_rangevar->relname) == 0)
+								{
+									excluded = true;
+								}
+							}
+						}
+
+						if (!excluded)
+						{
+							tables = lappend(tables, (void*)TableName);
+						}
 					}
 				}
+
+				SQLCloseCursor(tables_stmt);
 			}
-
-			SQLCloseCursor(tables_stmt);
-
-			SQLFreeHandle(SQL_HANDLE_STMT, tables_stmt);
-			odbc_disconnection(&env, &dbc);
+			PG_FINALLY();
+			{
+				SQLFreeHandle(SQL_HANDLE_STMT, tables_stmt);
+				odbc_disconnection(&env, &dbc);
+			}
+			PG_END_TRY();
 		}
 		else if (stmt->list_type == FDW_IMPORT_SCHEMA_LIMIT_TO)
 		{
@@ -2185,48 +2373,118 @@ odbcImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 		foreach(tables_cell, tables)
 		{
 			char *table_name = (char*)lfirst(tables_cell);
+			List* pkeyList = NIL;
+			SQLCHAR* primaryKeyName = NULL;
+
+			elog(DEBUG1, "table_name : %s", table_name);
 
 			/* Allocate a statement handle */
 			SQLAllocHandle(SQL_HANDLE_STMT, dbc, &columns_stmt);
 
-			ret = SQLColumns(
-			          columns_stmt,
-			          NULL, 0,
-			          (SQLCHAR*)schema_name, SQL_NTS,
-			          (SQLCHAR*)table_name,  SQL_NTS,
-			          NULL, 0
-			      );
+			/* Obtain primary keys in ODBC table */
+			if (use_table_catalog == true)
+				ret = SQLPrimaryKeys(columns_stmt,
+									(SQLCHAR *)schema_name,
+									SQL_NTS,
+									NULL,		/* table schema */
+									0,
+									(SQLCHAR *)table_name,  SQL_NTS);
+			else
+				ret = SQLPrimaryKeys(columns_stmt,
+									NULL,		/* table catalog */
+									0,
+									(SQLCHAR *)schema_name,
+									SQL_NTS,
+									(SQLCHAR*)table_name,  SQL_NTS);
+
+			check_return(ret, "Obtaining ODBC primary keys", columns_stmt, SQL_HANDLE_STMT);
+
+			ret = SQL_SUCCESS;
+			while ((ret == SQL_SUCCESS) || (ret == SQL_SUCCESS_WITH_INFO))
+			{
+				ret = SQLFetch(columns_stmt);
+				if (ret == SQL_SUCCESS || ret == SQL_SUCCESS_WITH_INFO)
+				{
+					primaryKeyName = (SQLCHAR *) palloc0(sizeof(SQLCHAR) * MAXIMUM_COLUMN_NAME_LEN);
+					ret = SQLGetData(columns_stmt, 4, SQL_C_CHAR, primaryKeyName, MAXIMUM_COLUMN_NAME_LEN, &indicator);
+					elog(DEBUG1, "primaryKeyName : %ld : %s", indicator, primaryKeyName);
+					pkeyList = lappend(pkeyList, primaryKeyName);
+				}
+				else if (ret != SQL_NO_DATA)
+				{
+					elog(ERROR, "error fetch primary keys");
+				}
+			}
+			SQLCloseCursor(columns_stmt);
+
+			if (use_table_catalog == true)
+			{
+				ret = SQLColumns(columns_stmt,
+								(SQLCHAR *)schema_name,
+								SQL_NTS,
+								NULL,
+								0,
+								(SQLCHAR*)table_name,  SQL_NTS,
+								NULL, 0);
+			}
+			else
+			{
+				ret = SQLColumns(columns_stmt,
+								NULL,
+								0,
+								(SQLCHAR *)schema_name,
+								SQL_NTS,
+								(SQLCHAR*)table_name,  SQL_NTS,
+								NULL, 0);
+			}
+
 			check_return(ret, "Obtaining ODBC columns", columns_stmt, SQL_HANDLE_STMT);
 
+			ret = SQL_SUCCESS;
 			i = 0;
 			initStringInfo(&col_str);
-			ColumnName = (SQLCHAR *) palloc(sizeof(SQLCHAR) * MAXIMUM_COLUMN_NAME_LEN);
+			ColumnName = (SQLCHAR *) palloc0(sizeof(SQLCHAR) * MAXIMUM_COLUMN_NAME_LEN);
 			while (SQL_NO_DATA != ret && SQL_SUCCESS_WITH_INFO != ret)
 			{
 				ret = SQLFetch(columns_stmt);
 				if (SQL_SUCCESS == ret)
 				{
+					bool isKey = false;
+					ListCell *pkeyCell;
+
 					ret = SQLGetData(columns_stmt, 4, SQL_C_CHAR, ColumnName, MAXIMUM_COLUMN_NAME_LEN, &indicator);
-					// check_return(ret, "Reading column name", columns_stmt, SQL_HANDLE_STMT);
+					elog(DEBUG1, "ColumnName : %s", ColumnName);
 					ret = SQLGetData(columns_stmt, 5, SQL_C_SSHORT, &DataType, MAXIMUM_COLUMN_NAME_LEN, &indicator);
-					// check_return(ret, "Reading column type", columns_stmt, SQL_HANDLE_STMT);
-					ret = SQLGetData(columns_stmt, 7, SQL_C_SLONG, &ColumnSize, 0, &indicator);
-					// check_return(ret, "Reading column size", columns_stmt, SQL_HANDLE_STMT);
+					/* SQL_C_SLONG is mapped with SQLINTEGER, use ColumnSizeInt instead of ColumnSize (SQLULEN) */
+					ret = SQLGetData(columns_stmt, 7, SQL_C_SLONG, &ColumnSizeInt, 0, &indicator);
 					ret = SQLGetData(columns_stmt, 9, SQL_C_SSHORT, &DecimalDigits, 0, &indicator);
-					// check_return(ret, "Reading column decimals", columns_stmt, SQL_HANDLE_STMT);
 					ret = SQLGetData(columns_stmt, 11, SQL_C_SSHORT, &Nullable, 0, &indicator);
-					// check_return(ret, "Reading column nullable", columns_stmt, SQL_HANDLE_STMT);
-					sql_data_type(DataType, ColumnSize, DecimalDigits, Nullable, &sql_type);
+					sql_data_type(DataType, (SQLULEN)ColumnSizeInt, DecimalDigits, Nullable, &sql_type);
 					if (is_blank_string(sql_type.data))
 					{
 						elog(NOTICE, "Data type not supported (%d) for column %s", DataType, ColumnName);
 						continue;
 					}
+					foreach(pkeyCell, pkeyList)
+					{
+						SQLCHAR* keyName = lfirst(pkeyCell);
+						if(strcmp((char *)keyName, (char *)ColumnName) == 0)
+						{
+							isKey = true;
+							break;
+						}
+					}
 					if (++i > 1)
 					{
 						appendStringInfo(&col_str, ", ");
 					}
-					appendStringInfo(&col_str, "\"%s\" %s", ColumnName, (char *) sql_type.data);
+					/* set 'key' OPTION if there is column name in pkeyList */
+					if(isKey)
+					{
+						appendStringInfo(&col_str, "\"%s\" %s OPTIONS (key 'true')", ColumnName, (char *) sql_type.data);
+					} else {
+						appendStringInfo(&col_str, "\"%s\" %s", ColumnName, (char *) sql_type.data);
+					}
 				}
 				#ifdef DEBUG
 				if (ret == SQL_ERROR || ret == SQL_SUCCESS_WITH_INFO)
@@ -2248,7 +2506,9 @@ odbcImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 				#endif
 			}
 			SQLCloseCursor(columns_stmt);
+
 			SQLFreeHandle(SQL_HANDLE_STMT, columns_stmt);
+			elog(DEBUG1, "col_str : %s", col_str.data);
 			table_columns = lappend(table_columns, (void*)col_str.data);
 		}
 		odbc_disconnection(&env, &dbc);
@@ -2305,4 +2565,1424 @@ odbcImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 	}
 
 	return create_statements;
+}
+
+/*
+ * odbcPlanForeignModify
+ *		Plan an insert/update/delete operation on a foreign table
+ */
+static List *
+odbcPlanForeignModify(PlannerInfo *root,
+					  ModifyTable *plan,
+					  Index resultRelation,
+					  int subplan_index)
+{
+	CmdType		operation = plan->operation;
+	RangeTblEntry *rte = planner_rt_fetch(resultRelation, root);
+	Relation	rel;
+	StringInfoData sql;
+	Oid foreignTableId;
+	TupleDesc tupdesc;
+	List	   *targetAttrs = NIL;
+	List	   *withCheckOptionList = NIL;
+	bool		doNothing = false;
+	List       *condAttrs = NIL;
+	StringInfoData name_qualifier_char;
+	StringInfoData quote_char;
+	odbcFdwOptions options;
+	SQLHENV		env;
+	SQLHDBC		dbc;
+	int			i;
+
+	elog(DEBUG1, "----> starting %s", __func__);
+	elog(DEBUG1, "resultRelation %d subplan_index %d", resultRelation, subplan_index);
+
+	initStringInfo(&sql);
+
+    /*
+	 * Core code already has some lock on each rel being planned, so we can
+     * use NoLock here.
+     */
+	rel = table_open(rte->relid, NoLock);
+
+	/*
+	 * get quote/qualifier chars for sql sentence
+	 */
+	odbcGetTableOptions(RelationGetRelid(rel), &options);
+	odbc_connection(&options, &env, &dbc);
+	PG_TRY();
+	{
+		getQuoteChar(dbc, &quote_char);
+		getNameQualifierChar(dbc, &name_qualifier_char);
+	}
+	PG_FINALLY();
+	{
+		odbc_disconnection(&env, &dbc);
+	}
+	PG_END_TRY();
+
+	foreignTableId = RelationGetRelid(rel);
+	tupdesc = RelationGetDescr(rel);
+	elog(DEBUG1, "columns %d", tupdesc->natts);  // <- 列の一覧っぽい
+
+	/*
+	 * In an INSERT, we transmit all columns that are defined in the foreign
+	 * table.  In an UPDATE, if there are BEFORE ROW UPDATE triggers on the
+	 * foreign table, we transmit all columns like INSERT; else we transmit
+	 * only columns that were explicitly targets of the UPDATE, so as to avoid
+	 * unnecessary data transmission.  (We can't do that for INSERT since we
+	 * would miss sending default values for columns not listed in the source
+	 * statement, and for UPDATE if there are BEFORE ROW UPDATE triggers since
+	 * those triggers might change values for non-target columns, in which
+	 * case we would miss sending changed values for those columns.)
+	 */
+	if (operation == CMD_INSERT ||
+		(operation == CMD_UPDATE &&
+		 rel->trigdesc &&
+		 rel->trigdesc->trig_update_before_row))
+	{
+		int attnum;
+		for (attnum = 1; attnum <= tupdesc->natts; attnum++)
+		{
+			// VALUESのとこの一覧を取ってくる。いろいろ書いてあるはず?
+			// しかし添字だけlistに追加して後段に渡す
+			// やっぱり型もlistに追加し後段に渡す。postgres_fdwと違い全部文字列で渡すわけにいかないようなので。
+			// やっぱり全部文字列にして渡すのでもいいのかもしれない。要検討。
+			Form_pg_attribute attr = TupleDescAttr(tupdesc, attnum - 1);
+			elog(DEBUG1, "attname %d %s", attnum, attr->attname.data);
+			elog(DEBUG1, (attr->attbyval)?("\tbyval:true"):("\tbyval:false"));
+			elog(DEBUG1, "\tlength:%d", attr->attlen);
+			if (!attr->attisdropped) {
+				targetAttrs = lappend_int(targetAttrs, attnum);
+				elog(DEBUG1, "odbcPlanForeignModify %s", format_type_be(attr->atttypid));
+			}
+		}
+	}
+	else if (operation == CMD_UPDATE)
+	{
+		int			col;
+		Bitmapset  *allUpdatedCols = bms_union(rte->updatedCols, rte->extraUpdatedCols);
+
+		col = -1;
+		while ((col = bms_next_member(allUpdatedCols, col)) >= 0)
+		{
+			/* bit numbers are offset by FirstLowInvalidHeapAttributeNumber */
+			AttrNumber	attno = col + FirstLowInvalidHeapAttributeNumber;
+
+			Form_pg_attribute attr = TupleDescAttr(tupdesc, attno - 1);
+			elog(DEBUG1, "attname %d %s", attno, attr->attname.data);
+
+			if (attno <= InvalidAttrNumber) /* shouldn't happen */
+				elog(ERROR, "system-column update is not supported");
+
+			targetAttrs = lappend_int(targetAttrs, attno);
+		}
+	}
+
+	// withCheckOptionList の作成 is 何
+	/*
+	 * Extract the relevant WITH CHECK OPTION list if any.
+	 */
+	if (plan->withCheckOptionLists)
+		withCheckOptionList = (List *) list_nth(plan->withCheckOptionLists,
+												subplan_index);
+
+	/*
+	 * Add all primary key attribute names to condAttr used in where clause of
+	 * update
+	 */
+	if (operation == CMD_UPDATE || operation == CMD_DELETE)
+	{
+		for (i = 0; i < tupdesc->natts; ++i)
+		{
+			Form_pg_attribute att = TupleDescAttr(tupdesc, i);
+			AttrNumber	attrno = att->attnum;
+			List	   *options;
+			ListCell   *option;
+
+			/* look for the "key" option on this column */
+			options = GetForeignColumnOptions(foreignTableId, attrno);
+			foreach(option, options)
+			{
+				DefElem    *def = (DefElem *) lfirst(option);
+				elog(DEBUG1, "column %d %d option %s", i, attrno, def->defname);
+				if (IS_KEY_COLUMN(def))
+				{
+					elog(DEBUG1, "column %d %d is key column", i, attrno);
+					condAttrs = lappend_int(condAttrs, attrno);
+				}
+			}
+		}
+	}
+
+	/*
+	 * Construct the SQL command string.
+	 */
+	switch (operation) {
+	case CMD_INSERT:
+		elog(DEBUG1, "INSERT");
+		deparseInsertSql(&sql, rte, resultRelation, rel,
+						 targetAttrs, doNothing,
+						 withCheckOptionList, name_qualifier_char.data, quote_char.data);
+		elog(DEBUG1, "sql %s", sql.data);
+		break;
+	case CMD_UPDATE:
+		elog(DEBUG1, "UPDATE");
+		deparseUpdateSql(&sql, rte, resultRelation, rel,
+						 condAttrs, targetAttrs,
+						 withCheckOptionList, name_qualifier_char.data, quote_char.data);
+		elog(DEBUG1, "sql %s", sql.data);
+		break;
+	case CMD_DELETE:
+		elog(DEBUG1, "DELETE");
+		deparseDeleteSql(&sql, rte, resultRelation, rel,
+						 condAttrs, name_qualifier_char.data, quote_char.data);
+		elog(DEBUG1, "sql %s", sql.data);
+		break;
+	default:
+		break;
+	}
+
+	table_close(rel, NoLock);
+
+	elog(DEBUG1, "----> finishing %s", __func__);
+	/*
+	 * Build the fdw_private list that will be available to the executor.
+	 * Items in the list must match enum FdwModifyPrivateIndex, above.
+	 */
+	return list_make2(makeString(sql.data), targetAttrs);
+}
+
+/*
+ * deparse remote INSERT statement
+ *
+ * The statement text is appended to buf, and we also create an integer List
+ * of the columns being retrieved by WITH CHECK OPTION or RETURNING (if any),
+ * which is returned to *retrieved_attrs.
+ */
+static void
+deparseInsertSql(StringInfo buf, RangeTblEntry *rte,
+				 Index rtindex, Relation rel,
+				 List *targetAttrs, bool doNothing,
+				 List *withCheckOptionList,
+				 char *name_qualifier_char,
+				 char *quote_char)
+{
+	AttrNumber	pindex;
+	bool		first;
+	ListCell   *lc;
+
+	appendStringInfoString(buf, "INSERT INTO ");
+	deparseRelation(buf, rel, name_qualifier_char, quote_char);
+
+	if (targetAttrs)
+	{
+		appendStringInfoChar(buf, '(');
+
+		first = true;
+		foreach(lc, targetAttrs)
+		{
+			int attnum = lfirst_int(lc);
+
+			if (!first)
+				appendStringInfoString(buf, ", ");
+			first = false;
+
+			deparseColumnRef(buf, rtindex, attnum, rte, false, quote_char);
+		}
+
+		appendStringInfoString(buf, ") VALUES (");
+
+		pindex = 1;
+		first = true;
+		foreach(lc, targetAttrs)
+		{
+			if (!first)
+				appendStringInfoString(buf, ", ");
+			first = false;
+
+			appendStringInfo(buf, "?");
+			pindex++;
+		}
+
+		appendStringInfoChar(buf, ')');
+	}
+	else
+		appendStringInfoString(buf, " DEFAULT VALUES");
+
+	if (doNothing)
+		appendStringInfoString(buf, " ON CONFLICT DO NOTHING");
+}
+
+/*
+ * deparse remote UPDATE statement
+ *
+ * The statement text is appended to buf, and we also create an integer List
+ * of the columns being retrieved by WITH CHECK OPTION or RETURNING (if any),
+ * which is returned to *retrieved_attrs.
+ */
+static void
+deparseUpdateSql(StringInfo buf, RangeTblEntry *rte,
+				 Index rtindex, Relation rel,
+				 List *attname,
+				 List *targetAttrs,
+				 List *withCheckOptionList,
+				 char *name_qualifier_char,
+				 char *quote_char)
+{
+	bool		first;
+	ListCell   *lc;
+
+	appendStringInfoString(buf, "UPDATE ");
+	deparseRelation(buf, rel, name_qualifier_char, quote_char);
+	appendStringInfoString(buf, " SET ");
+
+	first = true;
+	foreach(lc, targetAttrs)
+	{
+		int attnum = lfirst_int(lc);
+
+		if (!first)
+			appendStringInfoString(buf, ", ");
+		first = false;
+
+		deparseColumnRef(buf, rtindex, attnum, rte, false, quote_char);
+		appendStringInfo(buf, " = ?");
+	}
+
+	// NULLでなければ、でいいのか? NULLでなく要素が0のパターンは?
+	if (attname)
+	{
+		first = true;
+		foreach(lc, attname)
+		{
+			int attnum = lfirst_int(lc);
+
+			if (first)
+				appendStringInfoString(buf, " WHERE ");
+			else
+				appendStringInfoString(buf, " AND ");
+			first = false;
+
+			deparseColumnRef(buf, rtindex, attnum, rte, false, quote_char);
+			appendStringInfoString(buf, " = ?");
+		}
+	}
+}
+
+/*
+ * deparse remote DELETE statement
+ *
+ * The statement text is appended to buf, and we also create an integer List
+ * of the columns being retrieved by RETURNING (if any), which is returned
+ * to *retrieved_attrs.
+ */
+static void
+deparseDeleteSql(StringInfo buf, RangeTblEntry *rte,
+				 Index rtindex, Relation rel,
+				 List *attname,
+				 char *name_qualifier_char,
+				 char *quote_char)
+{
+	bool		first;
+	ListCell   *lc;
+
+	appendStringInfoString(buf, "DELETE FROM ");
+	deparseRelation(buf, rel, name_qualifier_char, quote_char);
+
+	// NULLでなければ、でいいのか? NULLでなく要素が0のパターンは?
+	if (attname)
+	{
+		first = true;
+		foreach(lc, attname)
+		{
+			int attnum = lfirst_int(lc);
+
+			if (first)
+				appendStringInfoString(buf, " WHERE ");
+			else
+				appendStringInfoString(buf, " AND ");
+			first = false;
+
+			deparseColumnRef(buf, rtindex, attnum, rte, false, quote_char);
+			appendStringInfoString(buf, " = ?");
+		}
+	}
+}
+
+/*
+ * Construct name to use for given column, and emit it into buf.
+ * If it has a column_name FDW option, use that instead of attribute name.
+ *
+ * If qualify_col is true, qualify column name with the alias of relation.
+ */
+static void
+deparseColumnRef(StringInfo buf, int varno, int varattno, RangeTblEntry *rte,
+				 bool qualify_col, char *quote_char)
+{
+	/* We not support fetching the remote side's CTID and OID. */
+	if (varattno == SelfItemPointerAttributeNumber)
+	{
+		elog(ERROR, "not support CTID/OID");
+	}
+	else if (varattno < 0)
+	{
+		elog(ERROR, "not support system attributes");
+	}
+	else if (varattno == 0)
+	{
+		elog(ERROR, "not support row reference");
+	}
+	else
+	{
+		char	   *colname = NULL;
+		List	   *options;
+		ListCell   *lc;
+
+		/* varno must not be any of OUTER_VAR, INNER_VAR and INDEX_VAR. */
+		Assert(!IS_SPECIAL_VARNO(varno));
+
+		/*
+		 * If it's a column of a foreign table, and it has the column_name FDW
+		 * option, use that value.
+		 */
+		options = GetForeignColumnOptions(rte->relid, varattno);
+		foreach(lc, options)
+		{
+			DefElem    *def = (DefElem *) lfirst(lc);
+
+			if (strcmp(def->defname, "column") == 0)
+			{
+				colname = defGetString(def);
+				break;
+			}
+		}
+
+		/*
+		 * If it's a column of a regular table or it doesn't have column_name
+		 * FDW option, use attribute name.
+		 */
+		if (colname == NULL)
+			colname = get_attname(rte->relid, varattno, false);
+
+		if (qualify_col)
+			ADD_REL_QUALIFIER(buf, varno);
+
+		appendStringInfo(buf, "%s%s%s", quote_char, colname, quote_char);
+
+
+	}
+}
+
+/*
+ * Append remote name of specified foreign table to buf.
+ * Use value of table_name FDW option (if any) instead of relation's name.
+ * Similarly, schema_name FDW option overrides schema name.
+ */
+static void
+deparseRelation(StringInfo buf, Relation rel, char *name_qualifier_char, char *quote_char)
+{
+	ForeignTable *table;
+	const char *nspname = NULL;
+	const char *relname = NULL;
+	ListCell   *lc;
+
+	/* obtain additional catalog information. */
+	table = GetForeignTable(RelationGetRelid(rel));
+
+	/*
+	 * Use value of FDW options if any, instead of the name of object itself.
+	 */
+	foreach(lc, table->options)
+	{
+		DefElem    *def = (DefElem *) lfirst(lc);
+
+		if (strcmp(def->defname, "schema") == 0)
+			nspname = defGetString(def);
+		else if (strcmp(def->defname, "table") == 0)
+			relname = defGetString(def);
+	}
+
+	/*
+	 * Note: we could skip printing the schema name if it's pg_catalog, but
+	 * that doesn't seem worth the trouble.
+	 */
+	if (nspname == NULL)
+		nspname = get_namespace_name(RelationGetNamespace(rel));
+	if (relname == NULL)
+		relname = RelationGetRelationName(rel);
+
+	if (is_blank_string(nspname))
+	{
+		appendStringInfo(buf, "%s%s%s",
+						quote_char, relname, quote_char);
+	}
+	else
+	{
+		appendStringInfo(buf, "%s%s%s%s%s%s%s",
+						quote_char, nspname, quote_char,
+						name_qualifier_char,
+						quote_char, relname, quote_char);
+	}
+}
+
+/*
+ * odbcBeginForeignModify
+ *		Begin an insert/update/delete operation on a foreign table
+ */
+static void
+odbcBeginForeignModify(ModifyTableState *mtstate,
+					   ResultRelInfo *resultRelInfo,
+					   List *fdw_private,
+					   int subplan_index,
+					   int eflags)
+{
+	odbcFdwModifyState *fmstate;
+	char *query;
+	List *target_attrs;
+	Plan *subplan = NULL;
+	Relation rel;
+	Oid foreignTableId = InvalidOid;
+	ListCell *lc;
+
+	/*
+	 * Do nothing in EXPLAIN (no ANALYZE) case.  resultRelInfo->ri_FdwState
+	 * stays NULL.
+	 */
+	if (eflags & EXEC_FLAG_EXPLAIN_ONLY)
+		return;
+
+	/* Deconstruct fdw_private data. */
+	query = strVal(list_nth(fdw_private, OdbcFdwModifyPrivateUpdateSql));
+	target_attrs = (List *) list_nth(fdw_private, OdbcFdwModifyPrivateTargetAttnums);
+#if (PG_VERSION_NUM >=140000)
+	subplan = outerPlanState(mtstate)->plan;
+#else
+	subplan = mtstate->mt_plans[subplan_index]->plan;
+#endif
+	elog(DEBUG1, "subplan %d", subplan?subplan->plan_node_id:-1);
+	/* Construct an execution state. */
+	fmstate = create_foreign_modify(mtstate->ps.state,
+									resultRelInfo,
+								    mtstate->operation,
+									subplan,
+									query,
+									target_attrs);
+	resultRelInfo->ri_FdwState = fmstate;
+
+	rel = resultRelInfo->ri_RelationDesc;
+	foreignTableId = RelationGetRelid(rel);
+	if (mtstate->operation == CMD_UPDATE || mtstate->operation == CMD_DELETE)
+	{
+		fmstate->junk_idx = palloc0(RelationGetDescr(rel)->natts * sizeof(AttrNumber));
+		elog(DEBUG1, "subplan->targetlist %d", list_length(subplan->targetlist));
+		foreach(lc, subplan->targetlist){
+			TargetEntry *tle = lfirst(lc);
+
+			/* Refer to PostgreSQL-13.0: L.477 of print_tl() in "nodes/print.c". */
+			elog(DEBUG1, "%s", tle->resname ? tle->resname : "<null>");
+		}
+		for (int i = 0; i < RelationGetDescr(rel)->natts; ++i)
+		{
+			fmstate->junk_idx[i] =ExecFindJunkAttributeInTlist(subplan->targetlist, get_attname(foreignTableId, i+1, false));
+			elog(DEBUG1, "ExecFindJunkAttributeInTlist %d %s %d", i, get_attname(foreignTableId, i+1, false), fmstate->junk_idx[i]);
+		}
+	}
+	else
+	{
+		fmstate->junk_idx = NULL;
+	}
+}
+
+/*
+ * create_foreign_modify
+ *		Construct an execution state of a foreign insert/update/delete
+ *		operation
+ */
+static odbcFdwModifyState *
+create_foreign_modify(EState *estate,
+					  ResultRelInfo *resultRelInfo,
+					  CmdType operation,
+					  Plan *subplan,
+					  char *query,
+					  List *target_attrs)
+{
+	SQLHENV env;
+	SQLHDBC dbc;
+	SQLRETURN ret;
+	odbcFdwModifyState *fmstate;
+	Relation	rel = resultRelInfo->ri_RelationDesc;
+	TupleDesc	tupdesc = RelationGetDescr(rel);
+	AttrNumber	n_params;
+	Oid			typefnoid;
+	bool		isvarlena;
+	ListCell   *lc;
+
+	elog_debug("%s", __func__);
+
+	fmstate = (odbcFdwModifyState *) palloc0(sizeof(odbcFdwModifyState));
+	odbcGetTableOptions(RelationGetRelid(rel), &fmstate->options);
+	elog(DEBUG1, "remote table : %s", fmstate->options.table);
+
+	odbc_connection(&fmstate->options, &env, &dbc);
+
+	fmstate->env = env;
+	fmstate->dbc = dbc;
+	/* Allocate a statement handle */
+	ret = SQLAllocHandle(SQL_HANDLE_STMT, fmstate->dbc, &fmstate->stmt);
+	if(!SQL_SUCCEEDED(ret)){
+		elog(ERROR, "failed alloc");
+	}
+	fmstate->query = query;
+	fmstate->target_attrs = target_attrs;
+
+	/* Create context for per-tuple temp workspace. */
+	fmstate->temp_cxt = AllocSetContextCreate(estate->es_query_cxt,
+											  "odbc_fdw temporary data",
+											  ALLOCSET_SMALL_SIZES);
+
+	/* Prepare for output conversion of parameters used in prepared stmt. */
+	n_params = list_length(fmstate->target_attrs) + 1;
+	fmstate->p_flinfo = (FmgrInfo *) palloc0(sizeof(FmgrInfo) * n_params);
+	fmstate->p_nums = 0;
+
+	if (operation == CMD_INSERT || operation == CMD_UPDATE)
+	{
+		/* Set up for remaining transmittable parameters */
+		foreach(lc, fmstate->target_attrs)
+		{
+			int			attnum = lfirst_int(lc);
+			Form_pg_attribute attr = TupleDescAttr(tupdesc, attnum - 1);
+
+			Assert(!attr->attisdropped);
+
+			elog(DEBUG1, "%s %s", __func__, format_type_be(attr->atttypid));
+
+			getTypeOutputInfo(attr->atttypid, &typefnoid, &isvarlena);
+			fmgr_info(typefnoid, &fmstate->p_flinfo[fmstate->p_nums]);
+			fmstate->p_nums++;
+		}
+	}
+	Assert(fmstate->p_nums <= n_params);
+
+	return fmstate;
+}
+
+/*
+ * odbcEndForeignModify
+ *		Finish an insert/update/delete operation on a foreign table
+ */
+static void
+odbcEndForeignModify(EState *estate,
+					 ResultRelInfo *resultRelInfo)
+{
+	odbcFdwModifyState *fmstate = (odbcFdwModifyState *) resultRelInfo->ri_FdwState;
+
+	/* If fmstate is NULL, we are in EXPLAIN; nothing to do */
+	if (fmstate == NULL)
+		return;
+	
+	/* Destroy the execution state */
+	finish_foreign_modify(fmstate);
+}
+
+/*
+ * finish_foreign_modify
+ *		Release resources for a foreign insert/update/delete operation
+ */
+static void
+finish_foreign_modify(odbcFdwModifyState *fmstate)
+{
+	Assert(fmstate != NULL);
+
+	/* Release remote connection */
+	if (fmstate->stmt)
+	{
+		SQLFreeHandle(SQL_HANDLE_STMT, fmstate->stmt);
+		fmstate->stmt = NULL;
+	}
+	odbc_disconnection(&fmstate->env, &fmstate->dbc);
+	fmstate->env = NULL;
+	fmstate->dbc = NULL;
+}
+
+/*
+ * odbcExecForeignInsert
+ *		Insert one row into a foreign table
+ */
+static TupleTableSlot *
+odbcExecForeignInsert(EState *estate,
+						  ResultRelInfo *resultRelInfo,
+						  TupleTableSlot *slot,
+						  TupleTableSlot *planSlot)
+{
+	TupleTableSlot *rslot;
+	PG_TRY();
+	{
+		rslot = execute_foreign_modify(estate, resultRelInfo, CMD_INSERT,
+								   slot, planSlot);
+	}
+	PG_CATCH();
+	{
+		release_odbc_resources(resultRelInfo->ri_FdwState);
+		PG_RE_THROW();
+	}
+	PG_END_TRY();
+	
+	return rslot;
+}
+
+/*
+ * execute_foreign_modify
+ *		Perform foreign-table modification as required, and fetch RETURNING
+ *		result if any.  (This is the shared guts of odbcExecForeignInsert,
+ *		odbcExecForeignUpdate, and odbcExecForeignDelete.)
+ */
+static TupleTableSlot *
+execute_foreign_modify(EState *estate,
+					   ResultRelInfo *resultRelInfo,
+					   CmdType operation,
+					   TupleTableSlot *slot,
+					   TupleTableSlot *planSlot)
+{
+	odbcFdwModifyState *fmstate = (odbcFdwModifyState *)resultRelInfo->ri_FdwState;
+	SQLLEN n_rows=0;
+	SQLRETURN ret;
+
+	elog_debug("%s", __func__);
+
+	/* The operation should be INSERT, UPDATE, or DELETE */
+	Assert(operation == CMD_INSERT ||
+		   operation == CMD_UPDATE ||
+		   operation == CMD_DELETE);
+
+	bind_stmt_params(fmstate, slot);
+
+	elog(DEBUG1, "%s %d", __func__, fmstate->p_nums);
+
+	if(operation==CMD_DELETE)
+	{
+		Relation	rel = resultRelInfo->ri_RelationDesc;
+		Oid			foreignTableId = RelationGetRelid(rel);
+		bindJunkColumnValue(fmstate, slot, planSlot, foreignTableId, 0);
+	}
+	else if(operation==CMD_UPDATE)
+	{
+		Relation	rel = resultRelInfo->ri_RelationDesc;
+		Oid			foreignTableId = RelationGetRelid(rel);
+		bindJunkColumnValue(fmstate, slot, planSlot, foreignTableId, fmstate->p_nums);
+	}
+
+	ret = SQLExecDirect(fmstate->stmt, (SQLCHAR *) fmstate->query, SQL_NTS);
+	if (!SQL_SUCCEEDED(ret))
+		check_return(ret, "Executing ODBC query", fmstate->stmt, SQL_HANDLE_STMT);
+	if (SQL_SUCCEEDED(ret))
+	{
+		SQLLEN rowCount;
+		SQLRowCount(fmstate->stmt, &rowCount);
+		elog(DEBUG1, "rowCount %ld", rowCount);
+		n_rows = rowCount;
+	}
+	else
+	{
+		elog(WARNING, "Error modify");
+	}
+
+	MemoryContextReset(fmstate->temp_cxt);
+
+	/*
+	 * Return NULL if nothing was inserted/updated/deleted on the remote end
+	 */
+	return (n_rows > 0) ? slot : NULL;
+}
+
+/*
+ * bind_stmt_params
+ *		Bind parameter values to SQLHSTMT
+ *
+ * slot is slot to get remaining parameters from, or NULL if none
+ *
+ * Data is constructed in temp_cxt; caller should reset that after use.
+ */
+void
+bind_stmt_params(odbcFdwModifyState *fmstate,
+						 TupleTableSlot *slot)
+{
+	int			pindex = 0;
+	MemoryContext previousCxt;
+	TupleDesc tupdesc = slot->tts_tupleDescriptor;
+
+	elog_debug("%s", __func__);
+
+	previousCxt = MemoryContextSwitchTo(fmstate->temp_cxt);
+
+	/* get following parameters from slot */
+	if (slot != NULL && fmstate->target_attrs != NIL)
+	{
+		int			nestlevel;
+		ListCell   *lc;
+
+		nestlevel = set_transmission_modes();
+
+		foreach(lc, fmstate->target_attrs)
+		{
+			int			attnum = lfirst_int(lc);
+			Form_pg_attribute attr = TupleDescAttr(tupdesc, attnum - 1);
+			Datum		value;
+			bool		isnull;
+
+			value = slot_getattr(slot, attnum, &isnull);
+			if (isnull)
+			{
+				SQLLEN *cbValue = NULL;
+				SQLRETURN ret;
+
+				cbValue = palloc0(sizeof(SQLLEN));
+				*cbValue = SQL_NULL_DATA;
+				ret = SQLBindParameter(fmstate->stmt, pindex+1, SQL_PARAM_INPUT, SQL_C_DEFAULT, SQL_TYPE_NULL, 0, 0, NULL, 0, cbValue);
+				check_return(ret, "BIND NULL", NULL, SQL_INVALID_HANDLE);
+			}
+			else
+			{
+				bind_stmt_param(fmstate, attr->atttypid, pindex, value);
+			}
+			pindex++;
+		}
+
+		reset_transmission_modes(nestlevel);
+	}
+
+	Assert(pindex == fmstate->p_nums);
+
+	MemoryContextSwitchTo(previousCxt);
+
+	return;
+}
+
+/*
+ * bind_stmt_param
+ *		Bind parameter value to SQLHSTMT
+ *
+ */
+void bind_stmt_param(odbcFdwModifyState *fmstate, Oid type, int attnum, Datum value)
+{
+	attnum++;
+	elog(DEBUG1, "odbc_fdw : %s %d type=%u ", __func__, attnum, type);
+
+	switch(type)
+	{
+		case INT2OID:
+			{
+				int16 *dat = NULL;
+				SQLRETURN ret;
+
+				dat = palloc0(sizeof(int16));
+				*dat = DatumGetInt16(value);
+				elog(DEBUG1, "integer16 %d", *dat);
+
+				ret = SQLBindParameter(fmstate->stmt, attnum, SQL_PARAM_INPUT, SQL_C_SSHORT, SQL_SMALLINT, 0, 0, dat, 0, NULL);
+				check_return(ret, "BIND INT20ID", NULL, SQL_INVALID_HANDLE);
+				break;
+			}
+		case INT4OID:
+			{
+				int32 *dat = NULL;
+				SQLRETURN ret;
+
+				dat = palloc0(sizeof(int32));
+				*dat = DatumGetInt32(value);
+				elog(DEBUG1, "integer32 %d", *dat);
+
+				ret = SQLBindParameter(fmstate->stmt, attnum, SQL_PARAM_INPUT, SQL_C_SLONG, SQL_INTEGER, 0, 0, dat, 0, NULL);
+				check_return(ret, "BIND INT4OID", NULL, SQL_INVALID_HANDLE);
+				break;
+			}
+		case INT8OID:
+			{
+				int64 *dat = NULL;
+				SQLRETURN ret;
+
+				dat = palloc0(sizeof(int64));
+				*dat = DatumGetInt64(value);
+				elog(DEBUG1, "integer64 %ld", *dat);
+
+				ret = SQLBindParameter(fmstate->stmt, attnum, SQL_PARAM_INPUT, SQL_C_SBIGINT, SQL_BIGINT, 0, 0, dat, 0, NULL);
+				check_return(ret, "BIND INT8OID", NULL, SQL_INVALID_HANDLE);
+				break;
+			}
+		case FLOAT4OID:
+			{
+				float4 *dat = NULL;
+				SQLRETURN ret;
+
+				dat = palloc0(sizeof(float4));
+				*dat = DatumGetFloat4(value);
+				elog(DEBUG1, "real %lf", *dat);
+
+				ret = SQLBindParameter(fmstate->stmt, attnum, SQL_PARAM_INPUT, SQL_C_FLOAT, SQL_C_FLOAT, 0, 0, dat, 0, NULL);
+				check_return(ret, "BIND FLOAT4OID", NULL, SQL_INVALID_HANDLE);
+				break;
+			}
+		case FLOAT8OID:
+			{
+				float8 *dat = NULL;
+				SQLRETURN ret;
+
+				dat = palloc0(sizeof(float8));
+				*dat = DatumGetFloat8(value);
+				elog(DEBUG1, "double %lf", *dat);
+
+				ret = SQLBindParameter(fmstate->stmt, attnum, SQL_PARAM_INPUT, SQL_C_DOUBLE, SQL_DOUBLE, 0, 0, dat, 0, NULL);
+				check_return(ret, "BIND FLOAT8OID", NULL, SQL_INVALID_HANDLE);
+				break;
+			}
+		case NUMERICOID:
+			{
+				char* pgString = NULL;
+				char* odbcString = NULL;
+				Oid outputFunctionId = InvalidOid;
+				bool typeVarLength = false;
+				SQLLEN *cbValue = NULL;
+				SQLRETURN ret;
+
+				elog(DEBUG1, "character varying %ld", VARSIZE_ANY_EXHDR(value));
+
+				getTypeOutputInfo(type, &outputFunctionId, &typeVarLength);
+				pgString = OidOutputFunctionCall(outputFunctionId, value);
+
+				odbcString = palloc0(strlen(pgString)+1);
+				strcpy(odbcString, pgString);
+
+				cbValue = palloc0(sizeof(SQLLEN));
+				*cbValue = SQL_NTS;
+				elog(DEBUG1, "numeric %ld %s", strlen(odbcString), odbcString);
+				ret = SQLBindParameter(fmstate->stmt, attnum, SQL_PARAM_INPUT, SQL_C_CHAR, SQL_NUMERIC, VARSIZE_ANY_EXHDR(value), 0, odbcString, VARSIZE_ANY_EXHDR(value)+1, cbValue);
+				check_return(ret, "BIND NUMERICOID", NULL, SQL_INVALID_HANDLE);
+				break;
+			}
+		case BOOLOID:
+			{
+				bool *dat = NULL;
+				SQLRETURN ret;
+
+				dat = palloc0(sizeof(bool));
+				*dat = DatumGetBool(value);
+				elog(DEBUG1, "boolean %s", *dat?"true":"false");
+
+				ret = SQLBindParameter(fmstate->stmt, attnum, SQL_PARAM_INPUT, SQL_C_BIT, SQL_BIT, 0, 0, dat, 0, NULL);
+				check_return(ret, "BIND BOOLOID", NULL, SQL_INVALID_HANDLE);
+				break;
+			}
+		case DATEOID:
+			{
+				DateADT pgDat;
+				int year, month, day;
+				DATE_STRUCT *odbcDate = NULL;
+				SQLRETURN ret;
+
+				pgDat = DatumGetDateADT(value);
+				elog(DEBUG1, "date %d", pgDat);
+
+				j2date(pgDat+POSTGRES_EPOCH_JDATE, &year, &month, &day);
+
+				odbcDate = palloc0(sizeof(DATE_STRUCT));
+
+				/* Because PostgreSQL calculate BC year start by 0, so
+				 * we need to minus 1 year */
+				if (year <= 0)
+					year--;
+				odbcDate->year = year;
+				odbcDate->month = month;
+				odbcDate->day = day;
+
+				ret = SQLBindParameter(fmstate->stmt, attnum, SQL_PARAM_INPUT, SQL_C_TYPE_DATE, SQL_DATETIME, sizeof(DATE_STRUCT), 0, odbcDate, sizeof(DATE_STRUCT), NULL);
+				check_return(ret, "BIND DATEOID", NULL, SQL_INVALID_HANDLE);
+				break;
+			}
+		case TIMEOID:
+			{
+				TimeADT *dat = NULL;
+				struct pg_tm tt, *tm = &tt;
+				fsec_t		fsec;
+				SQLRETURN ret;
+
+				elog(DEBUG1, "time");
+				dat = palloc0(sizeof(TimeADT));
+				*dat = DatumGetTimeADT(value);
+
+				/* Same as time_out(), but forcing DateStyle */
+				time2tm(*dat, tm, &fsec);
+
+				ret = SQLBindParameter(fmstate->stmt, attnum, SQL_PARAM_INPUT, SQL_C_DOUBLE, SQL_DOUBLE, 0, 0, dat, 0, NULL);
+				check_return(ret, "BIND TIMEOID", NULL, SQL_INVALID_HANDLE);
+				break;
+			}
+		case TIMESTAMPOID:
+			{
+				Timestamp pgDat;
+				struct pg_tm tm;
+				fsec_t fsec;
+				SQL_TIMESTAMP_STRUCT *odbcTimestamp = NULL;
+				SQLRETURN ret;
+
+				elog(DEBUG1, "timestamp");
+				pgDat = DatumGetTimestamp(value);
+
+				/* Same as timestamp_out(), but forcing DateStyle */
+				if (TIMESTAMP_NOT_FINITE(pgDat)) {
+					elog(ERROR, "TIMESTAMP_NOT_FINITE");
+				}
+				else
+				{
+					timestamp2tm(pgDat, NULL, &tm, &fsec, NULL, NULL);
+				}
+
+				odbcTimestamp = palloc0(sizeof(SQL_TIMESTAMP_STRUCT));
+
+				/* Because PostgreSQL calculate BC year start by 0, so
+				 * we need to minus 1 year */
+				if (tm.tm_year <= 0)
+					odbcTimestamp->year = tm.tm_year - 1;
+				else
+					odbcTimestamp->year = tm.tm_year;
+				odbcTimestamp->month = tm.tm_mon;
+				odbcTimestamp->day = tm.tm_mday;
+				odbcTimestamp->hour = tm.tm_hour;
+				odbcTimestamp->minute = tm.tm_min;
+				odbcTimestamp->second = tm.tm_sec;
+
+				/*
+				 * The resolution of PostgreSQL is microsecond (6 digits) but
+				 * The resolution of timestamp struct is nanosecond (9 digits),
+				 * so we need append 3 number zero at the end of fraction.
+				 */
+				odbcTimestamp->fraction = fsec * 1000;
+
+				ret = SQLBindParameter(fmstate->stmt, attnum, SQL_PARAM_INPUT, SQL_C_TYPE_TIMESTAMP, SQL_TYPE_TIMESTAMP, sizeof(SQL_TIMESTAMP_STRUCT), 0, odbcTimestamp, sizeof(SQL_TIMESTAMP_STRUCT), NULL);
+				check_return(ret, "BIND TIMESTAMPOID", NULL, SQL_INVALID_HANDLE);
+				break;
+			}
+		case BPCHAROID:
+		case VARCHAROID:
+		case TEXTOID:
+			{
+				char* pgString = NULL;
+				char* odbcString = NULL;
+				Oid outputFunctionId = InvalidOid;
+				bool typeVarLength = false;
+				SQLLEN *cbValue = NULL;
+				SQLRETURN ret;
+
+				elog(DEBUG1, "character varying %ld", VARSIZE_ANY_EXHDR(value));
+
+				getTypeOutputInfo(type, &outputFunctionId, &typeVarLength);
+				pgString = OidOutputFunctionCall(outputFunctionId, value);
+
+				odbcString = palloc0(strlen(pgString)+1);
+				strcpy(odbcString, pgString);
+
+				cbValue = palloc0(sizeof(SQLLEN));
+				*cbValue = SQL_NTS;
+				elog(DEBUG1, "character varying %ld %s", strlen(odbcString), odbcString);
+				ret = SQLBindParameter(fmstate->stmt, attnum, SQL_PARAM_INPUT, SQL_C_CHAR, SQL_VARCHAR, VARSIZE_ANY_EXHDR(value), 0, odbcString, VARSIZE_ANY_EXHDR(value)+1, cbValue);
+				check_return(ret, "BIND TEXTOID", NULL, SQL_INVALID_HANDLE);
+				break;
+			}
+	}
+}
+
+/*
+ * bindJunkColumnValue
+ *		from sqlite_fdw
+ *		key 'true' の列の値をbindする
+ *
+ */
+static void
+bindJunkColumnValue(odbcFdwModifyState *fmstate, TupleTableSlot *slot, TupleTableSlot *planSlot, Oid foreignTableId, int bindnum)
+{
+	int			i;
+	Datum		value;
+	Oid			typeoid;
+
+	/* Bind where condition using junk column */
+	for (i = 0; i < slot->tts_tupleDescriptor->natts; ++i)
+	{
+		Form_pg_attribute att = TupleDescAttr(slot->tts_tupleDescriptor, i);
+		AttrNumber	attrno = att->attnum;
+		List	   *options;
+		ListCell   *option;
+
+		elog(DEBUG1, "%s %02d:%s is %d", __func__, i, att->attname.data, fmstate->junk_idx[i]);
+		/* look for the "key" option on this column */
+		if (fmstate->junk_idx[i] == InvalidAttrNumber)
+			continue;
+		options = GetForeignColumnOptions(foreignTableId, attrno);
+		foreach(option, options)
+		{
+			DefElem    *def = (DefElem *) lfirst(option);
+			bool		is_null = false;
+
+			if (IS_KEY_COLUMN(def))
+			{
+				/* Get the id that was passed up as a resjunk column */
+				value = ExecGetJunkAttribute(planSlot, fmstate->junk_idx[i], &is_null);
+				typeoid = att->atttypid;
+
+				/* Bind qual */
+				bind_stmt_param(fmstate, typeoid, bindnum, value);
+				bindnum++;
+			}
+		}
+
+	}
+}
+
+/*
+ * Force assorted GUC parameters to settings that ensure that we'll output
+ * data values in a form that is unambiguous to the remote server.
+ *
+ * This is rather expensive and annoying to do once per row, but there's
+ * little choice if we want to be sure values are transmitted accurately;
+ * we can't leave the settings in place between rows for fear of affecting
+ * user-visible computations.
+ *
+ * We use the equivalent of a function SET option to allow the settings to
+ * persist only until the caller calls reset_transmission_modes().  If an
+ * error is thrown in between, guc.c will take care of undoing the settings.
+ *
+ * The return value is the nestlevel that must be passed to
+ * reset_transmission_modes() to undo things.
+ */
+static int
+set_transmission_modes(void)
+{
+	int			nestlevel = NewGUCNestLevel();
+
+	/*
+	 * The values set here should match what pg_dump does.  See also
+	 * configure_remote_session in connection.c.
+	 */
+	if (DateStyle != USE_ISO_DATES)
+		(void) set_config_option("datestyle", "ISO",
+								 PGC_USERSET, PGC_S_SESSION,
+								 GUC_ACTION_SAVE, true, 0, false);
+	if (IntervalStyle != INTSTYLE_POSTGRES)
+		(void) set_config_option("intervalstyle", "postgres",
+								 PGC_USERSET, PGC_S_SESSION,
+								 GUC_ACTION_SAVE, true, 0, false);
+	if (extra_float_digits < 3)
+		(void) set_config_option("extra_float_digits", "3",
+								 PGC_USERSET, PGC_S_SESSION,
+								 GUC_ACTION_SAVE, true, 0, false);
+
+	return nestlevel;
+}
+
+/*
+ * Undo the effects of set_transmission_modes().
+ */
+static void
+reset_transmission_modes(int nestlevel)
+{
+	AtEOXact_GUC(true, nestlevel);
+}
+
+/*
+ * release_odbc_resources
+ *      release resources related ODBC connections safely.
+ */
+static void
+release_odbc_resources(odbcFdwModifyState *fmstate)
+{
+	SQLRETURN ret;
+
+	if(fmstate->stmt)
+	{
+		ret = SQLFreeHandle(SQL_HANDLE_STMT, fmstate->stmt);
+		if (!SQL_SUCCEEDED(ret))
+		{
+			elog(DEBUG1, "error free hSTMT %d", ret);
+		}
+		fmstate->stmt = NULL;
+	}
+
+	if(fmstate->dbc)
+	{
+		ret = SQLDisconnect(fmstate->dbc);
+		if (!SQL_SUCCEEDED(ret))
+		{
+			elog(DEBUG1, "error close hDBC %d", ret);
+		}
+		ret = SQLFreeHandle(SQL_HANDLE_DBC, fmstate->dbc);
+		if (!SQL_SUCCEEDED(ret))
+		{
+			elog(DEBUG1, "error free hDBC %d", ret);
+		}
+		fmstate->dbc = NULL;
+	}
+
+	if(fmstate->env)
+	{
+		ret = SQLFreeHandle(SQL_HANDLE_ENV, fmstate->env);
+		if (!SQL_SUCCEEDED(ret))
+		{
+			elog(DEBUG1, "error free hENV %d", ret);
+		}
+		fmstate->env = NULL;
+	}
+}
+
+/*
+ * odbcAddForeignUpdateTargets: Add column(s) needed for update/delete on a foreign table,
+ * we are using first column as row identification column, so we are adding that into target
+ * list.
+ */
+
+#if (PG_VERSION_NUM < 140000)
+static void
+odbcAddForeignUpdateTargets(Query *parsetree, RangeTblEntry *target_rte,
+							Relation target_relation)
+#else
+static void
+odbcAddForeignUpdateTargets(PlannerInfo *root, Index rtindex,
+							RangeTblEntry *target_rte, Relation target_relation)
+#endif
+{
+	Oid			relid = RelationGetRelid(target_relation);
+	TupleDesc	tupdesc = target_relation->rd_att;
+	int			i;
+	bool		has_key = false;
+
+	/* loop through all columns of the foreign table */
+	for (i = 0; i < tupdesc->natts; ++i)
+	{
+		Form_pg_attribute att = TupleDescAttr(tupdesc, i);
+		AttrNumber	attrno = att->attnum;
+		List	   *options;
+		ListCell   *option;
+
+		/* look for the "key" option on this column */
+		options = GetForeignColumnOptions(relid, attrno);
+		foreach(option, options)
+		{
+			DefElem    *def = (DefElem *) lfirst(option);
+
+			/* if "key" is set, add a resjunk for this column */
+			if (IS_KEY_COLUMN(def))
+			{
+				Var		   *var;
+				const char *attrname;
+#if (PG_VERSION_NUM < 140000)
+				TargetEntry *tle;
+				Index rtindex = parsetree->resultRelation;
+#endif
+				/* Make a Var representing the desired value */
+				var = makeVar(rtindex,
+							  attrno,
+							  att->atttypid,
+							  att->atttypmod,
+							  att->attcollation,
+							  0);
+				/* Get name of the row identifier column */
+				attrname = NameStr(att->attname);
+#if (PG_VERSION_NUM < 140000)
+				/* Wrap it in a resjunk TLE with the right name ... */
+				tle = makeTargetEntry((Expr *) var,
+									  list_length(parsetree->targetList) + 1,
+									  pstrdup(attrname),
+									  true);
+				/* ... and add it to the query's targetlist */
+				parsetree->targetList = lappend(parsetree->targetList, tle);
+#else
+				add_row_identity_var(root, var, rtindex, attrname);
+#endif
+				has_key = true;
+			}
+			else if (strcmp(def->defname, "key") == 0)
+			{
+				elog(ERROR, "impossible column option \"%s\"", def->defname);
+			}
+		}
+	}
+
+	if (!has_key)
+		ereport(ERROR,
+				(errcode(ERRCODE_FDW_UNABLE_TO_CREATE_EXECUTION),
+				 errmsg("no primary key column specified for foreign table"),
+				 errdetail("For UPDATE or DELETE, at least one foreign table column must be marked as primary key column."),
+				 errhint("Set the option \"%s\" on the columns that belong to the primary key.", "key")));
+}
+
+/*
+ * odbcExecForeignUpdate
+ *		Update one row in a foreign table
+ */
+static TupleTableSlot *
+odbcExecForeignUpdate(EState *estate,
+						  ResultRelInfo *resultRelInfo,
+						  TupleTableSlot *slot,
+						  TupleTableSlot *planSlot)
+{
+	TupleTableSlot *rslot;
+	PG_TRY();
+	{
+		rslot = execute_foreign_modify(estate, resultRelInfo, CMD_UPDATE, slot, planSlot);
+	}
+	PG_CATCH();
+	{
+		release_odbc_resources(resultRelInfo->ri_FdwState);
+		PG_RE_THROW();
+	}
+	PG_END_TRY();
+
+	return rslot;
+}
+
+/*
+ * odbcExecForeignDelete
+ *		Delete one row from a foreign table
+ */
+static TupleTableSlot *
+odbcExecForeignDelete(EState *estate,
+						  ResultRelInfo *resultRelInfo,
+						  TupleTableSlot *slot,
+						  TupleTableSlot *planSlot)
+{
+	TupleTableSlot *rslot;
+	PG_TRY();
+	{
+		rslot = execute_foreign_modify(estate, resultRelInfo, CMD_DELETE, slot, planSlot);
+	}
+	PG_CATCH();
+	{
+		release_odbc_resources(resultRelInfo->ri_FdwState);
+		PG_RE_THROW();
+	}
+	PG_END_TRY();
+
+	return rslot;
+}
+
+/*
+ * odbcIsForeignRelUpdatable
+ *		Determine whether a foreign table supports INSERT, UPDATE and/or
+ *		DELETE.
+ */
+static int
+odbcIsForeignRelUpdatable(Relation rel)
+{
+	bool		updatable;
+	ForeignTable *table;
+	ForeignServer *server;
+	ListCell   *lc;
+
+	/*
+	 * By default, all odbc_fdw foreign tables are assumed updatable. This
+	 * can be overridden by a per-server setting, which in turn can be
+	 * overridden by a per-table setting.
+	 */
+	updatable = true;
+
+	table = GetForeignTable(RelationGetRelid(rel));
+	server = GetForeignServer(table->serverid);
+
+	foreach(lc, server->options)
+	{
+		DefElem    *def = (DefElem *) lfirst(lc);
+
+		if (strcmp(def->defname, "updatable") == 0)
+			updatable = defGetBoolean(def);
+	}
+	foreach(lc, table->options)
+	{
+		DefElem    *def = (DefElem *) lfirst(lc);
+
+		if (strcmp(def->defname, "updatable") == 0)
+			updatable = defGetBoolean(def);
+	}
+
+	/*
+	 * Currently "updatable" means support for INSERT, UPDATE and DELETE.
+	 */
+	return updatable ?
+		(1 << CMD_INSERT) | (1 << CMD_UPDATE) | (1 << CMD_DELETE) : 0;
+}
+
+/*
+ * odbcExplainForeignModify
+ *		Produce extra output for EXPLAIN of a ModifyTable on a foreign table
+ */
+static void
+odbcExplainForeignModify(ModifyTableState *mtstate,
+							 ResultRelInfo *rinfo,
+							 List *fdw_private,
+							 int subplan_index,
+							 ExplainState *es)
+{
+	if (es->verbose)
+	{
+		char *sql = strVal(list_nth(fdw_private, OdbcFdwModifyPrivateUpdateSql));
+
+		ExplainPropertyText("Remote SQL", sql, es);
+	}
+}
+
+/*
+ * odbcBeginForeignInsert
+ *         Prepare for an insert operation triggered by partition routing
+ *         or COPY FROM.
+ *
+ * This is not yet supported, so raise an error.
+ */
+static void
+odbcBeginForeignInsert(ModifyTableState *mtstate,
+                        ResultRelInfo *resultRelInfo)
+{
+    ereport(ERROR,
+            (errcode(ERRCODE_FDW_UNABLE_TO_CREATE_EXECUTION),
+             errmsg("COPY and foreign partition routing not supported in odbc_fdw")));
+}
+
+/*
+ * odbcEndForeignInsert
+ *         BeginForeignInsert() is not yet implemented, hence we do not
+ *         have anything to cleanup as of now. We throw an error here just
+ *         to make sure when we do that we do not forget to cleanup
+ *         resources.
+ */
+static void
+odbcEndForeignInsert(EState *estate, ResultRelInfo *resultRelInfo)
+{
+    ereport(ERROR,
+            (errcode(ERRCODE_FDW_UNABLE_TO_CREATE_EXECUTION),
+             errmsg("COPY and foreign partition routing not supported in odbc_fdw")));
+}
+
+/*
+ * Compare input string_value with the string get from remote database
+ */
+static SQLRETURN
+validate_retrieved_string(SQLHSTMT stmt, SQLUSMALLINT ColumnNumber, const char *string_value, bool *is_mapped, bool *is_empty_retrieved_string)
+{
+	SQLRETURN	ret;
+	SQLLEN		indicator;
+	SQLCHAR	   *result = (SQLCHAR *) palloc0(sizeof(SQLCHAR) * MAXIMUM_BUFFER_SIZE);
+
+	*is_mapped = false;
+	*is_empty_retrieved_string = false;
+	ret = SQLGetData(stmt, ColumnNumber, SQL_C_CHAR, result, MAXIMUM_SCHEMA_NAME_LEN, &indicator);
+
+	if (ret == SQL_SUCCESS)
+	{
+		if (is_blank_string((char *)result))
+		{
+			*is_empty_retrieved_string = true;
+		}
+		else if (strcmp((char *)result, string_value) == 0)
+		{
+			*is_mapped = true;
+		}
+	}
+	pfree(result);
+	return ret;
 }

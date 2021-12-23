@@ -1,0 +1,224 @@
+--
+-- mysql
+-- DATE
+--
+\set ECHO none
+\i sql/14.0/date.sql
+--
+-- DATE
+--
+--Testcase 1:
+CREATE EXTENSION :DB_EXTENSIONNAME;
+--Testcase 2:
+CREATE SERVER :DB_SERVERNAME FOREIGN DATA WRAPPER :DB_EXTENSIONNAME
+  OPTIONS (odbc_DRIVER :DB_DRIVERNAME, odbc_SERVER :DB_SERVER, odbc_port :DB_PORT, odbc_DATABASE :DB_DATABASE);
+--Testcase 3:
+CREATE USER MAPPING FOR public SERVER :DB_SERVERNAME OPTIONS (odbc_UID :DB_USER, odbc_PWD :DB_PASS);
+--Testcase 4:
+CREATE FOREIGN TABLE DATE_TBL (f1 date, id serial OPTIONS (key 'true')) SERVER :DB_SERVERNAME OPTIONS (schema :DB_SCHEMA, table 'date_tbl');
+--Testcase 5:
+INSERT INTO DATE_TBL VALUES ('1957-04-09');
+--Testcase 6:
+INSERT INTO DATE_TBL VALUES ('1957-06-13');
+--Testcase 7:
+INSERT INTO DATE_TBL VALUES ('1996-02-28');
+--Testcase 8:
+INSERT INTO DATE_TBL VALUES ('1996-02-29');
+--Testcase 9:
+INSERT INTO DATE_TBL VALUES ('1996-03-01');
+--Testcase 10:
+INSERT INTO DATE_TBL VALUES ('1996-03-02');
+--Testcase 11:
+INSERT INTO DATE_TBL VALUES ('1997-02-28');
+--Testcase 12:
+INSERT INTO DATE_TBL VALUES ('1997-02-29');
+psql:sql/14.0/date.sql:30: ERROR:  date/time field value out of range: "1997-02-29"
+LINE 1: INSERT INTO DATE_TBL VALUES ('1997-02-29');
+                                     ^
+--Testcase 13:
+INSERT INTO DATE_TBL VALUES ('1997-03-01');
+--Testcase 14:
+INSERT INTO DATE_TBL VALUES ('1997-03-02');
+--Testcase 15:
+INSERT INTO DATE_TBL VALUES ('2000-04-01');
+--Testcase 16:
+INSERT INTO DATE_TBL VALUES ('2000-04-02');
+--Testcase 17:
+INSERT INTO DATE_TBL VALUES ('2000-04-03');
+--Testcase 18:
+INSERT INTO DATE_TBL VALUES ('2038-04-08');
+--Testcase 19:
+INSERT INTO DATE_TBL VALUES ('2039-04-09');
+--Testcase 20:
+INSERT INTO DATE_TBL VALUES ('2040-04-10');
+--Testcase 21:
+SELECT f1 FROM DATE_TBL;
+     f1     
+------------
+ 04-09-1957
+ 06-13-1957
+ 02-28-1996
+ 02-29-1996
+ 03-01-1996
+ 03-02-1996
+ 02-28-1997
+ 03-01-1997
+ 03-02-1997
+ 04-01-2000
+ 04-02-2000
+ 04-03-2000
+ 04-08-2038
+ 04-09-2039
+ 04-10-2040
+(15 rows)
+
+--Testcase 22:
+SELECT f1 FROM DATE_TBL WHERE f1 < '2000-01-01';
+     f1     
+------------
+ 04-09-1957
+ 06-13-1957
+ 02-28-1996
+ 02-29-1996
+ 03-01-1996
+ 03-02-1996
+ 02-28-1997
+ 03-01-1997
+ 03-02-1997
+(9 rows)
+
+--Testcase 23:
+SELECT f1 FROM DATE_TBL
+  WHERE f1 BETWEEN '2000-01-01' AND '2001-01-01';
+     f1     
+------------
+ 04-01-2000
+ 04-02-2000
+ 04-03-2000
+(3 rows)
+
+--
+-- Check all the documented input formats
+--
+--Testcase 24:
+SET datestyle TO iso;  -- display results in ISO
+--Testcase 25:
+RESET datestyle;
+--
+-- Simple math
+-- Leave most of it for the horology tests
+--
+--Testcase 26:
+SELECT f1 - date '2000-01-01' AS "Days From 2K" FROM DATE_TBL;
+ Days From 2K 
+--------------
+       -15607
+       -15542
+        -1403
+        -1402
+        -1401
+        -1400
+        -1037
+        -1036
+        -1035
+           91
+           92
+           93
+        13977
+        14343
+        14710
+(15 rows)
+
+--Testcase 27:
+SELECT f1 - date 'epoch' AS "Days From Epoch" FROM DATE_TBL;
+ Days From Epoch 
+-----------------
+           -4650
+           -4585
+            9554
+            9555
+            9556
+            9557
+            9920
+            9921
+            9922
+           11048
+           11049
+           11050
+           24934
+           25300
+           25667
+(15 rows)
+
+--
+-- test extract!
+--
+--Testcase 28:
+EXPLAIN VERBOSE
+SELECT f1 as "date",
+    date_part('year', f1) AS year,
+    date_part('month', f1) AS month,
+    date_part('day', f1) AS day,
+    date_part('quarter', f1) AS quarter,
+    date_part('decade', f1) AS decade,
+    date_part('century', f1) AS century,
+    date_part('millennium', f1) AS millennium,
+    date_part('isoyear', f1) AS isoyear,
+    date_part('week', f1) AS week,
+    date_part('dow', f1) AS dow,
+    date_part('isodow', f1) AS isodow,
+    date_part('doy', f1) AS doy,
+    date_part('julian', f1) AS julian,
+    date_part('epoch', f1) AS epoch
+    FROM date_tbl;
+                                                                                                                                                                                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.date_tbl  (cost=25.00..41.05 rows=15 width=116)
+   Output: f1, date_part('year'::text, (f1)::timestamp without time zone), date_part('month'::text, (f1)::timestamp without time zone), date_part('day'::text, (f1)::timestamp without time zone), date_part('quarter'::text, (f1)::timestamp without time zone), date_part('decade'::text, (f1)::timestamp without time zone), date_part('century'::text, (f1)::timestamp without time zone), date_part('millennium'::text, (f1)::timestamp without time zone), date_part('isoyear'::text, (f1)::timestamp without time zone), date_part('week'::text, (f1)::timestamp without time zone), date_part('dow'::text, (f1)::timestamp without time zone), date_part('isodow'::text, (f1)::timestamp without time zone), date_part('doy'::text, (f1)::timestamp without time zone), date_part('julian'::text, (f1)::timestamp without time zone), date_part('epoch'::text, (f1)::timestamp without time zone)
+   Foreign Table Size: 15 b
+   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`date_tbl`
+(4 rows)
+
+--Testcase 29:
+SELECT f1 as "date",
+    date_part('year', f1) AS year,
+    date_part('month', f1) AS month,
+    date_part('day', f1) AS day,
+    date_part('quarter', f1) AS quarter,
+    date_part('decade', f1) AS decade,
+    date_part('century', f1) AS century,
+    date_part('millennium', f1) AS millennium,
+    date_part('isoyear', f1) AS isoyear,
+    date_part('week', f1) AS week,
+    date_part('dow', f1) AS dow,
+    date_part('isodow', f1) AS isodow,
+    date_part('doy', f1) AS doy,
+    date_part('julian', f1) AS julian,
+    date_part('epoch', f1) AS epoch
+    FROM date_tbl;
+    date    | year | month | day | quarter | decade | century | millennium | isoyear | week | dow | isodow | doy | julian  |   epoch    
+------------+------+-------+-----+---------+--------+---------+------------+---------+------+-----+--------+-----+---------+------------
+ 04-09-1957 | 1957 |     4 |   9 |       2 |    195 |      20 |          2 |    1957 |   15 |   2 |      2 |  99 | 2435938 | -401760000
+ 06-13-1957 | 1957 |     6 |  13 |       2 |    195 |      20 |          2 |    1957 |   24 |   4 |      4 | 164 | 2436003 | -396144000
+ 02-28-1996 | 1996 |     2 |  28 |       1 |    199 |      20 |          2 |    1996 |    9 |   3 |      3 |  59 | 2450142 |  825465600
+ 02-29-1996 | 1996 |     2 |  29 |       1 |    199 |      20 |          2 |    1996 |    9 |   4 |      4 |  60 | 2450143 |  825552000
+ 03-01-1996 | 1996 |     3 |   1 |       1 |    199 |      20 |          2 |    1996 |    9 |   5 |      5 |  61 | 2450144 |  825638400
+ 03-02-1996 | 1996 |     3 |   2 |       1 |    199 |      20 |          2 |    1996 |    9 |   6 |      6 |  62 | 2450145 |  825724800
+ 02-28-1997 | 1997 |     2 |  28 |       1 |    199 |      20 |          2 |    1997 |    9 |   5 |      5 |  59 | 2450508 |  857088000
+ 03-01-1997 | 1997 |     3 |   1 |       1 |    199 |      20 |          2 |    1997 |    9 |   6 |      6 |  60 | 2450509 |  857174400
+ 03-02-1997 | 1997 |     3 |   2 |       1 |    199 |      20 |          2 |    1997 |    9 |   0 |      7 |  61 | 2450510 |  857260800
+ 04-01-2000 | 2000 |     4 |   1 |       2 |    200 |      20 |          2 |    2000 |   13 |   6 |      6 |  92 | 2451636 |  954547200
+ 04-02-2000 | 2000 |     4 |   2 |       2 |    200 |      20 |          2 |    2000 |   13 |   0 |      7 |  93 | 2451637 |  954633600
+ 04-03-2000 | 2000 |     4 |   3 |       2 |    200 |      20 |          2 |    2000 |   14 |   1 |      1 |  94 | 2451638 |  954720000
+ 04-08-2038 | 2038 |     4 |   8 |       2 |    203 |      21 |          3 |    2038 |   14 |   4 |      4 |  98 | 2465522 | 2154297600
+ 04-09-2039 | 2039 |     4 |   9 |       2 |    203 |      21 |          3 |    2039 |   14 |   6 |      6 |  99 | 2465888 | 2185920000
+ 04-10-2040 | 2040 |     4 |  10 |       2 |    204 |      21 |          3 |    2040 |   15 |   2 |      2 | 101 | 2466255 | 2217628800
+(15 rows)
+
+--Testcase 30:
+DROP SERVER :DB_SERVERNAME CASCADE;
+psql:sql/14.0/date.sql:118: NOTICE:  drop cascades to 2 other objects
+DETAIL:  drop cascades to user mapping for public on server mysql_server
+drop cascades to foreign table date_tbl
+--Testcase 31:
+DROP EXTENSION :DB_EXTENSIONNAME CASCADE;

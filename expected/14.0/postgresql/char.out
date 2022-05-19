@@ -42,7 +42,7 @@ INSERT INTO char_tbl VALUES ('a');
                                QUERY PLAN                                
 -------------------------------------------------------------------------
  Insert on public.char_tbl  (cost=0.00..0.01 rows=0 width=0)
-   Remote SQL: INSERT INTO "public"."char_tbl"("f1", "id") VALUES (?, ?)
+   Remote SQL: INSERT INTO public.char_tbl(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=12)
          Output: 'a'::character(1), nextval('char_tbl_id_seq'::regclass)
 (4 rows)
@@ -55,7 +55,7 @@ INSERT INTO char_tbl VALUES ('A');
                                QUERY PLAN                                
 -------------------------------------------------------------------------
  Insert on public.char_tbl  (cost=0.00..0.01 rows=0 width=0)
-   Remote SQL: INSERT INTO "public"."char_tbl"("f1", "id") VALUES (?, ?)
+   Remote SQL: INSERT INTO public.char_tbl(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=12)
          Output: 'A'::character(1), nextval('char_tbl_id_seq'::regclass)
 (4 rows)
@@ -69,7 +69,7 @@ INSERT INTO char_tbl VALUES ('1');
                                QUERY PLAN                                
 -------------------------------------------------------------------------
  Insert on public.char_tbl  (cost=0.00..0.01 rows=0 width=0)
-   Remote SQL: INSERT INTO "public"."char_tbl"("f1", "id") VALUES (?, ?)
+   Remote SQL: INSERT INTO public.char_tbl(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=12)
          Output: '1'::character(1), nextval('char_tbl_id_seq'::regclass)
 (4 rows)
@@ -82,7 +82,7 @@ INSERT INTO char_tbl VALUES (2);
                                QUERY PLAN                                
 -------------------------------------------------------------------------
  Insert on public.char_tbl  (cost=0.00..0.01 rows=0 width=0)
-   Remote SQL: INSERT INTO "public"."char_tbl"("f1", "id") VALUES (?, ?)
+   Remote SQL: INSERT INTO public.char_tbl(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=12)
          Output: '2'::character(1), nextval('char_tbl_id_seq'::regclass)
 (4 rows)
@@ -95,7 +95,7 @@ INSERT INTO char_tbl VALUES ('3');
                                QUERY PLAN                                
 -------------------------------------------------------------------------
  Insert on public.char_tbl  (cost=0.00..0.01 rows=0 width=0)
-   Remote SQL: INSERT INTO "public"."char_tbl"("f1", "id") VALUES (?, ?)
+   Remote SQL: INSERT INTO public.char_tbl(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=12)
          Output: '3'::character(1), nextval('char_tbl_id_seq'::regclass)
 (4 rows)
@@ -109,7 +109,7 @@ INSERT INTO char_tbl VALUES ('');
                                QUERY PLAN                                
 -------------------------------------------------------------------------
  Insert on public.char_tbl  (cost=0.00..0.01 rows=0 width=0)
-   Remote SQL: INSERT INTO "public"."char_tbl"("f1", "id") VALUES (?, ?)
+   Remote SQL: INSERT INTO public.char_tbl(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=12)
          Output: ' '::character(1), nextval('char_tbl_id_seq'::regclass)
 (4 rows)
@@ -130,7 +130,7 @@ INSERT INTO char_tbl VALUES ('c     ');
                                QUERY PLAN                                
 -------------------------------------------------------------------------
  Insert on public.char_tbl  (cost=0.00..0.01 rows=0 width=0)
-   Remote SQL: INSERT INTO "public"."char_tbl"("f1", "id") VALUES (?, ?)
+   Remote SQL: INSERT INTO public.char_tbl(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=12)
          Output: 'c'::character(1), nextval('char_tbl_id_seq'::regclass)
 (4 rows)
@@ -145,7 +145,7 @@ SELECT f1 FROM CHAR_TBL;
  Foreign Scan on public.char_tbl  (cost=25.00..32.00 rows=7 width=8)
    Output: f1
    Foreign Table Size: 7 b
-   Remote SQL: SELECT "f1","id" FROM "public"."char_tbl"
+   Remote SQL: SELECT f1 FROM public.char_tbl
 (4 rows)
 
 --Testcase 24:
@@ -161,6 +161,8 @@ SELECT f1 FROM CHAR_TBL;
  c
 (7 rows)
 
+-- For Char, varchar, text in MySQL, comparison is case-insensitive.
+-- Result at MySQL will not same as Postgres.
 --Testcase 25:
 EXPLAIN VERBOSE
 SELECT c.f1
@@ -170,10 +172,9 @@ SELECT c.f1
 -----------------------------------------------------------------------
  Foreign Scan on public.char_tbl c  (cost=25.00..32.00 rows=7 width=8)
    Output: f1
-   Filter: (c.f1 <> 'a'::bpchar)
    Foreign Table Size: 7 b
-   Remote SQL: SELECT "f1","id" FROM "public"."char_tbl"
-(5 rows)
+   Remote SQL: SELECT f1 FROM public.char_tbl WHERE ((f1 <> 'a'))
+(4 rows)
 
 --Testcase 26:
 SELECT c.f1
@@ -198,10 +199,9 @@ SELECT c.f1
 -----------------------------------------------------------------------
  Foreign Scan on public.char_tbl c  (cost=25.00..32.00 rows=7 width=8)
    Output: f1
-   Filter: (c.f1 = 'a'::bpchar)
    Foreign Table Size: 7 b
-   Remote SQL: SELECT "f1","id" FROM "public"."char_tbl"
-(5 rows)
+   Remote SQL: SELECT f1 FROM public.char_tbl WHERE ((f1 = 'a'))
+(4 rows)
 
 --Testcase 28:
 SELECT c.f1
@@ -221,10 +221,9 @@ SELECT c.f1
 -----------------------------------------------------------------------
  Foreign Scan on public.char_tbl c  (cost=25.00..32.00 rows=7 width=8)
    Output: f1
-   Filter: (c.f1 < 'a'::bpchar)
    Foreign Table Size: 7 b
-   Remote SQL: SELECT "f1","id" FROM "public"."char_tbl"
-(5 rows)
+   Remote SQL: SELECT f1 FROM public.char_tbl WHERE ((f1 < 'a'))
+(4 rows)
 
 --Testcase 30:
 SELECT c.f1
@@ -247,10 +246,9 @@ SELECT c.f1
 -----------------------------------------------------------------------
  Foreign Scan on public.char_tbl c  (cost=25.00..32.00 rows=7 width=8)
    Output: f1
-   Filter: (c.f1 <= 'a'::bpchar)
    Foreign Table Size: 7 b
-   Remote SQL: SELECT "f1","id" FROM "public"."char_tbl"
-(5 rows)
+   Remote SQL: SELECT f1 FROM public.char_tbl WHERE ((f1 <= 'a'))
+(4 rows)
 
 --Testcase 32:
 SELECT c.f1
@@ -274,10 +272,9 @@ SELECT c.f1
 -----------------------------------------------------------------------
  Foreign Scan on public.char_tbl c  (cost=25.00..32.00 rows=7 width=8)
    Output: f1
-   Filter: (c.f1 > 'a'::bpchar)
    Foreign Table Size: 7 b
-   Remote SQL: SELECT "f1","id" FROM "public"."char_tbl"
-(5 rows)
+   Remote SQL: SELECT f1 FROM public.char_tbl WHERE ((f1 > 'a'))
+(4 rows)
 
 --Testcase 34:
 SELECT c.f1
@@ -298,10 +295,9 @@ SELECT c.f1
 -----------------------------------------------------------------------
  Foreign Scan on public.char_tbl c  (cost=25.00..32.00 rows=7 width=8)
    Output: f1
-   Filter: (c.f1 >= 'a'::bpchar)
    Foreign Table Size: 7 b
-   Remote SQL: SELECT "f1","id" FROM "public"."char_tbl"
-(5 rows)
+   Remote SQL: SELECT f1 FROM public.char_tbl WHERE ((f1 >= 'a'))
+(4 rows)
 
 --Testcase 36:
 SELECT c.f1
@@ -327,7 +323,7 @@ INSERT INTO CHAR_TBL VALUES ('a');
                                  QUERY PLAN                                 
 ----------------------------------------------------------------------------
  Insert on public.char_tbl  (cost=0.00..0.01 rows=0 width=0)
-   Remote SQL: INSERT INTO "public"."char_tbl_2"("f1", "id") VALUES (?, ?)
+   Remote SQL: INSERT INTO public.char_tbl_2(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=24)
          Output: 'a   '::character(4), nextval('char_tbl_id_seq'::regclass)
 (4 rows)
@@ -340,7 +336,7 @@ INSERT INTO CHAR_TBL VALUES ('ab');
                                  QUERY PLAN                                 
 ----------------------------------------------------------------------------
  Insert on public.char_tbl  (cost=0.00..0.01 rows=0 width=0)
-   Remote SQL: INSERT INTO "public"."char_tbl_2"("f1", "id") VALUES (?, ?)
+   Remote SQL: INSERT INTO public.char_tbl_2(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=24)
          Output: 'ab  '::character(4), nextval('char_tbl_id_seq'::regclass)
 (4 rows)
@@ -353,7 +349,7 @@ INSERT INTO CHAR_TBL VALUES ('abcd');
                                  QUERY PLAN                                 
 ----------------------------------------------------------------------------
  Insert on public.char_tbl  (cost=0.00..0.01 rows=0 width=0)
-   Remote SQL: INSERT INTO "public"."char_tbl_2"("f1", "id") VALUES (?, ?)
+   Remote SQL: INSERT INTO public.char_tbl_2(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=24)
          Output: 'abcd'::character(4), nextval('char_tbl_id_seq'::regclass)
 (4 rows)
@@ -363,17 +359,17 @@ INSERT INTO CHAR_TBL VALUES ('abcd');
 --Testcase 45:
 EXPLAIN VERBOSE
 INSERT INTO CHAR_TBL VALUES ('abcde');
-psql:sql/14.0/char.sql:154: ERROR:  value too long for type character(4)
+psql:sql/14.0/char.sql:156: ERROR:  value too long for type character(4)
 --Testcase 46:
 INSERT INTO CHAR_TBL VALUES ('abcde');
-psql:sql/14.0/char.sql:156: ERROR:  value too long for type character(4)
+psql:sql/14.0/char.sql:158: ERROR:  value too long for type character(4)
 --Testcase 47:
 EXPLAIN VERBOSE
 INSERT INTO CHAR_TBL VALUES ('abcd    ');
                                  QUERY PLAN                                 
 ----------------------------------------------------------------------------
  Insert on public.char_tbl  (cost=0.00..0.01 rows=0 width=0)
-   Remote SQL: INSERT INTO "public"."char_tbl_2"("f1", "id") VALUES (?, ?)
+   Remote SQL: INSERT INTO public.char_tbl_2(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=24)
          Output: 'abcd'::character(4), nextval('char_tbl_id_seq'::regclass)
 (4 rows)
@@ -387,7 +383,7 @@ EXPLAIN VERBOSE SELECT f1 FROM CHAR_TBL;
  Foreign Scan on public.char_tbl  (cost=25.00..29.00 rows=4 width=20)
    Output: f1
    Foreign Table Size: 4 b
-   Remote SQL: SELECT "f1","id" FROM "public"."char_tbl_2"
+   Remote SQL: SELECT f1 FROM public.char_tbl_2
 (4 rows)
 
 --Testcase 50:
@@ -402,7 +398,7 @@ SELECT f1 FROM CHAR_TBL;
 
 --Testcase 51:
 DROP SERVER :DB_SERVERNAME CASCADE;
-psql:sql/14.0/char.sql:168: NOTICE:  drop cascades to 2 other objects
+psql:sql/14.0/char.sql:170: NOTICE:  drop cascades to 2 other objects
 DETAIL:  drop cascades to user mapping for public on server postgres_server
 drop cascades to foreign table char_tbl
 --Testcase 52:

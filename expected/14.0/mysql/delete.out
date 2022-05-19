@@ -24,16 +24,15 @@ INSERT INTO delete_test (a) VALUES (100);
 -- allow an alias to be specified for DELETE's target table
 --Testcase 5:
 EXPLAIN VERBOSE DELETE FROM delete_test AS dt WHERE dt.a > 75;
-                                   QUERY PLAN                                    
----------------------------------------------------------------------------------
+                                    QUERY PLAN                                    
+----------------------------------------------------------------------------------
  Delete on public.delete_test dt  (cost=25.00..28.00 rows=0 width=0)
-   Remote SQL: DELETE FROM `odbc_fdw_regress`.`delete_test` WHERE `id` = ?
+   Remote SQL: DELETE FROM odbc_fdw_regress.delete_test WHERE id = ?
    ->  Foreign Scan on public.delete_test dt  (cost=25.00..28.00 rows=3 width=4)
          Output: id
-         Filter: (dt.a > 75)
          Foreign Table Size: 3 b
-         Remote SQL: SELECT `id`,`a`,`b` FROM `odbc_fdw_regress`.`delete_test`
-(7 rows)
+         Remote SQL: SELECT id FROM odbc_fdw_regress.delete_test WHERE ((a > 75))
+(6 rows)
 
 --Testcase 6:
 DELETE FROM delete_test AS dt WHERE dt.a > 75;
@@ -58,7 +57,7 @@ EXPLAIN VERBOSE SELECT id, a, char_length(b) FROM delete_test;
  Foreign Scan on public.delete_test  (cost=25.00..27.00 rows=2 width=12)
    Output: id, a, char_length(b)
    Foreign Table Size: 2 b
-   Remote SQL: SELECT `id`,`a`,`b` FROM `odbc_fdw_regress`.`delete_test`
+   Remote SQL: SELECT id, a, b FROM odbc_fdw_regress.delete_test
 (4 rows)
 
 --Testcase 10:
@@ -72,16 +71,15 @@ SELECT id, a, char_length(b) FROM delete_test;
 -- delete a row with a TOASTed value
 --Testcase 11:
 EXPLAIN VERBOSE DELETE FROM delete_test WHERE a > 25;
-                                  QUERY PLAN                                   
--------------------------------------------------------------------------------
+                                    QUERY PLAN                                    
+----------------------------------------------------------------------------------
  Delete on public.delete_test  (cost=25.00..27.00 rows=0 width=0)
-   Remote SQL: DELETE FROM `odbc_fdw_regress`.`delete_test` WHERE `id` = ?
+   Remote SQL: DELETE FROM odbc_fdw_regress.delete_test WHERE id = ?
    ->  Foreign Scan on public.delete_test  (cost=25.00..27.00 rows=2 width=4)
          Output: id
-         Filter: (delete_test.a > 25)
          Foreign Table Size: 2 b
-         Remote SQL: SELECT `id`,`a`,`b` FROM `odbc_fdw_regress`.`delete_test`
-(7 rows)
+         Remote SQL: SELECT id FROM odbc_fdw_regress.delete_test WHERE ((a > 25))
+(6 rows)
 
 --Testcase 12:
 DELETE FROM delete_test WHERE a > 25;
@@ -92,7 +90,7 @@ EXPLAIN VERBOSE SELECT id, a, char_length(b) FROM delete_test;
  Foreign Scan on public.delete_test  (cost=25.00..26.00 rows=1 width=12)
    Output: id, a, char_length(b)
    Foreign Table Size: 1 b
-   Remote SQL: SELECT `id`,`a`,`b` FROM `odbc_fdw_regress`.`delete_test`
+   Remote SQL: SELECT id, a, b FROM odbc_fdw_regress.delete_test
 (4 rows)
 
 --Testcase 14:

@@ -22,6 +22,8 @@ export PGS_SRC_DIR="/home/test/workplace/postgresql-13.0"
 # SET GLOBAL time_zone = '-8:00';
 # SET GLOBAL log_bin_trust_function_creators = 1;
 # SET GLOBAL local_infile=1;
+# -- Use "||" operator as CONCAT operator
+# SET GLOBAL sql_mode=(SELECT CONCAT(@@sql_mode, ',PIPES_AS_CONCAT'));
 
 mysql -h $MYSQL_HOST -u $MYSQL_USER_NAME -P $MYSQL_PORT -D $MYSQL_DB_NAME --local-infile=1 < $PGS_SRC_DIR/contrib/odbc_fdw/init/mysql_init_core.sql
 mysql -h $MYSQL_HOST -u $MYSQL_USER_NAME -P $MYSQL_PORT -D $MYSQL_DB_NAME --local-infile=1 < $PGS_SRC_DIR/contrib/odbc_fdw/init/mysql_init_post.sql

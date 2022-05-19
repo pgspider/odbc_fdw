@@ -20,3 +20,12 @@ INSERT INTO tbl04 VALUES (6, 45021.21, 2121, 'example', false, '1999-10-01 00:00
 INSERT INTO tbl04 VALUES (7, 121.9741, 23241, 'thing', false, '2010-10-01 00:00:00');
 INSERT INTO tbl04 VALUES (8, 75, 316, 'example', false, '1999-10-01 10:10:00');
 INSERT INTO tbl04 VALUES (9, 6867.34, 8916, 'thing', false, '2010-10-01 10:10:00');
+
+DROP TABLE IF EXISTS s1;
+CREATE TABLE s1(id int PRIMARY KEY, tag1 text, value1 float, value2 int, value3 float, value4 int, value5 numeric, str1 text, str2 text);
+INSERT INTO s1 VALUES (0, 'a', 0.1, 100, -0.1, -100, 0.1, '---XYZ---', '   XYZ   ');
+INSERT INTO s1 VALUES (1, 'a', 0.2, 100, -0.2, -100, 0.2, '---XYZ---', '   XYZ   ');
+INSERT INTO s1 VALUES (2, 'a', 0.3, 100, -0.3, -100, 0.3, '---XYZ---', '   XYZ   ');
+INSERT INTO s1 VALUES (3, 'b', 1.1, 200, -1.1, -200, 1.1, '---XYZ---', '   XYZ   ');
+INSERT INTO s1 VALUES (4, 'b', 2.2, 200, -2.2, -200, 1.2, '---XYZ---', '   XYZ   ');
+INSERT INTO s1 VALUES (5, 'b', 3.3, 200, -3.3, -200, 1.3, '---XYZ---', '   XYZ   ');

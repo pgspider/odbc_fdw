@@ -19,10 +19,10 @@ CREATE FOREIGN TABLE FLOAT8_TBL(f1 float8, id serial OPTIONS (key 'true')) SERVE
 --Testcase 5:
 EXPLAIN VERBOSE
 INSERT INTO FLOAT8_TBL(f1) VALUES ('    0.0   ');
-                                     QUERY PLAN                                      
--------------------------------------------------------------------------------------
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
  Insert on public.float8_tbl  (cost=0.00..0.01 rows=1 width=12)
-   Remote SQL: INSERT INTO `odbc_fdw_regress`.`float8_tbl`(`f1`, `id`) VALUES (?, ?)
+   Remote SQL: INSERT INTO odbc_fdw_regress.float8_tbl(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=12)
          Output: '0'::double precision, nextval('float8_tbl_id_seq'::regclass)
 (4 rows)
@@ -32,10 +32,10 @@ INSERT INTO FLOAT8_TBL(f1) VALUES ('    0.0   ');
 --Testcase 7:
 EXPLAIN VERBOSE
 INSERT INTO FLOAT8_TBL(f1) VALUES ('1004.30  ');
-                                     QUERY PLAN                                      
--------------------------------------------------------------------------------------
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
  Insert on public.float8_tbl  (cost=0.00..0.01 rows=1 width=12)
-   Remote SQL: INSERT INTO `odbc_fdw_regress`.`float8_tbl`(`f1`, `id`) VALUES (?, ?)
+   Remote SQL: INSERT INTO odbc_fdw_regress.float8_tbl(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=12)
          Output: '1004.3'::double precision, nextval('float8_tbl_id_seq'::regclass)
 (4 rows)
@@ -45,10 +45,10 @@ INSERT INTO FLOAT8_TBL(f1) VALUES ('1004.30  ');
 --Testcase 9:
 EXPLAIN VERBOSE
 INSERT INTO FLOAT8_TBL(f1) VALUES ('   -34.84');
-                                     QUERY PLAN                                      
--------------------------------------------------------------------------------------
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
  Insert on public.float8_tbl  (cost=0.00..0.01 rows=1 width=12)
-   Remote SQL: INSERT INTO `odbc_fdw_regress`.`float8_tbl`(`f1`, `id`) VALUES (?, ?)
+   Remote SQL: INSERT INTO odbc_fdw_regress.float8_tbl(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=12)
          Output: '-34.84'::double precision, nextval('float8_tbl_id_seq'::regclass)
 (4 rows)
@@ -61,7 +61,7 @@ INSERT INTO FLOAT8_TBL(f1) VALUES ('1.2345678901234e+200');
                                             QUERY PLAN                                            
 --------------------------------------------------------------------------------------------------
  Insert on public.float8_tbl  (cost=0.00..0.01 rows=1 width=12)
-   Remote SQL: INSERT INTO `odbc_fdw_regress`.`float8_tbl`(`f1`, `id`) VALUES (?, ?)
+   Remote SQL: INSERT INTO odbc_fdw_regress.float8_tbl(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=12)
          Output: '1.2345678901234e+200'::double precision, nextval('float8_tbl_id_seq'::regclass)
 (4 rows)
@@ -74,7 +74,7 @@ INSERT INTO FLOAT8_TBL(f1) VALUES ('1.2345678901234e-200');
                                             QUERY PLAN                                            
 --------------------------------------------------------------------------------------------------
  Insert on public.float8_tbl  (cost=0.00..0.01 rows=1 width=12)
-   Remote SQL: INSERT INTO `odbc_fdw_regress`.`float8_tbl`(`f1`, `id`) VALUES (?, ?)
+   Remote SQL: INSERT INTO odbc_fdw_regress.float8_tbl(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=12)
          Output: '1.2345678901234e-200'::double precision, nextval('float8_tbl_id_seq'::regclass)
 (4 rows)
@@ -178,7 +178,7 @@ SELECT '' AS five, f1 FROM FLOAT8_TBL;
  Foreign Scan on public.float8_tbl  (cost=25.00..30.00 rows=5 width=40)
    Output: ''::text, f1
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
 (4 rows)
 
 --Testcase 32:
@@ -195,14 +195,13 @@ SELECT '' AS five, f1 FROM FLOAT8_TBL;
 --Testcase 33:
 EXPLAIN VERBOSE
 SELECT '' AS four, f.f1 FROM FLOAT8_TBL f WHERE f.f1 <> '1004.3';
-                                QUERY PLAN                                
---------------------------------------------------------------------------
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
  Foreign Scan on public.float8_tbl f  (cost=25.00..30.00 rows=5 width=40)
    Output: ''::text, f1
-   Filter: (f.f1 <> '1004.3'::double precision)
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
-(5 rows)
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((f1 <> 1004.3))
+(4 rows)
 
 --Testcase 34:
 SELECT '' AS four, f.f1 FROM FLOAT8_TBL f WHERE f.f1 <> '1004.3';
@@ -217,14 +216,13 @@ SELECT '' AS four, f.f1 FROM FLOAT8_TBL f WHERE f.f1 <> '1004.3';
 --Testcase 35:
 EXPLAIN VERBOSE
 SELECT '' AS one, f.f1 FROM FLOAT8_TBL f WHERE f.f1 = '1004.3';
-                                QUERY PLAN                                
---------------------------------------------------------------------------
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
  Foreign Scan on public.float8_tbl f  (cost=25.00..30.00 rows=5 width=40)
    Output: ''::text, f1
-   Filter: (f.f1 = '1004.3'::double precision)
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
-(5 rows)
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((f1 = 1004.3))
+(4 rows)
 
 --Testcase 36:
 SELECT '' AS one, f.f1 FROM FLOAT8_TBL f WHERE f.f1 = '1004.3';
@@ -236,14 +234,13 @@ SELECT '' AS one, f.f1 FROM FLOAT8_TBL f WHERE f.f1 = '1004.3';
 --Testcase 37:
 EXPLAIN VERBOSE
 SELECT '' AS three, f.f1 FROM FLOAT8_TBL f WHERE '1004.3' > f.f1;
-                                QUERY PLAN                                
---------------------------------------------------------------------------
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
  Foreign Scan on public.float8_tbl f  (cost=25.00..30.00 rows=5 width=40)
    Output: ''::text, f1
-   Filter: ('1004.3'::double precision > f.f1)
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
-(5 rows)
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((1004.3 > f1))
+(4 rows)
 
 --Testcase 38:
 SELECT '' AS three, f.f1 FROM FLOAT8_TBL f WHERE '1004.3' > f.f1;
@@ -257,14 +254,13 @@ SELECT '' AS three, f.f1 FROM FLOAT8_TBL f WHERE '1004.3' > f.f1;
 --Testcase 39:
 EXPLAIN VERBOSE
 SELECT '' AS three, f.f1 FROM FLOAT8_TBL f WHERE  f.f1 < '1004.3';
-                                QUERY PLAN                                
---------------------------------------------------------------------------
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
  Foreign Scan on public.float8_tbl f  (cost=25.00..30.00 rows=5 width=40)
    Output: ''::text, f1
-   Filter: (f.f1 < '1004.3'::double precision)
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
-(5 rows)
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((f1 < 1004.3))
+(4 rows)
 
 --Testcase 40:
 SELECT '' AS three, f.f1 FROM FLOAT8_TBL f WHERE  f.f1 < '1004.3';
@@ -278,14 +274,13 @@ SELECT '' AS three, f.f1 FROM FLOAT8_TBL f WHERE  f.f1 < '1004.3';
 --Testcase 41:
 EXPLAIN VERBOSE
 SELECT '' AS four, f.f1 FROM FLOAT8_TBL f WHERE '1004.3' >= f.f1;
-                                QUERY PLAN                                
---------------------------------------------------------------------------
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
  Foreign Scan on public.float8_tbl f  (cost=25.00..30.00 rows=5 width=40)
    Output: ''::text, f1
-   Filter: ('1004.3'::double precision >= f.f1)
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
-(5 rows)
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((1004.3 >= f1))
+(4 rows)
 
 --Testcase 42:
 SELECT '' AS four, f.f1 FROM FLOAT8_TBL f WHERE '1004.3' >= f.f1;
@@ -300,14 +295,13 @@ SELECT '' AS four, f.f1 FROM FLOAT8_TBL f WHERE '1004.3' >= f.f1;
 --Testcase 43:
 EXPLAIN VERBOSE
 SELECT '' AS four, f.f1 FROM FLOAT8_TBL f WHERE  f.f1 <= '1004.3';
-                                QUERY PLAN                                
---------------------------------------------------------------------------
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
  Foreign Scan on public.float8_tbl f  (cost=25.00..30.00 rows=5 width=40)
    Output: ''::text, f1
-   Filter: (f.f1 <= '1004.3'::double precision)
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
-(5 rows)
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((f1 <= 1004.3))
+(4 rows)
 
 --Testcase 44:
 SELECT '' AS four, f.f1 FROM FLOAT8_TBL f WHERE  f.f1 <= '1004.3';
@@ -324,14 +318,13 @@ EXPLAIN VERBOSE
 SELECT '' AS three, f.f1, f.f1 * '-10' AS x
    FROM FLOAT8_TBL f
    WHERE f.f1 > '0.0';
-                                QUERY PLAN                                
---------------------------------------------------------------------------
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
  Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=48)
    Output: ''::text, f1, (f1 * '-10'::double precision)
-   Filter: (f.f1 > '0'::double precision)
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
-(5 rows)
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((f1 > 0))
+(4 rows)
 
 --Testcase 46:
 SELECT '' AS three, f.f1, f.f1 * '-10' AS x
@@ -349,14 +342,13 @@ EXPLAIN VERBOSE
 SELECT '' AS three, f.f1, f.f1 + '-10' AS x
    FROM FLOAT8_TBL f
    WHERE f.f1 > '0.0';
-                                QUERY PLAN                                
---------------------------------------------------------------------------
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
  Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=48)
    Output: ''::text, f1, (f1 + '-10'::double precision)
-   Filter: (f.f1 > '0'::double precision)
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
-(5 rows)
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((f1 > 0))
+(4 rows)
 
 --Testcase 48:
 SELECT '' AS three, f.f1, f.f1 + '-10' AS x
@@ -374,14 +366,13 @@ EXPLAIN VERBOSE
 SELECT '' AS three, f.f1, f.f1 / '-10' AS x
    FROM FLOAT8_TBL f
    WHERE f.f1 > '0.0';
-                                QUERY PLAN                                
---------------------------------------------------------------------------
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
  Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=48)
    Output: ''::text, f1, (f1 / '-10'::double precision)
-   Filter: (f.f1 > '0'::double precision)
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
-(5 rows)
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((f1 > 0))
+(4 rows)
 
 --Testcase 50:
 SELECT '' AS three, f.f1, f.f1 / '-10' AS x
@@ -399,14 +390,13 @@ EXPLAIN VERBOSE
 SELECT '' AS three, f.f1, f.f1 - '-10' AS x
    FROM FLOAT8_TBL f
    WHERE f.f1 > '0.0';
-                                QUERY PLAN                                
---------------------------------------------------------------------------
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
  Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=48)
    Output: ''::text, f1, (f1 - '-10'::double precision)
-   Filter: (f.f1 > '0'::double precision)
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
-(5 rows)
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((f1 > 0))
+(4 rows)
 
 --Testcase 52:
 SELECT '' AS three, f.f1, f.f1 - '-10' AS x
@@ -423,14 +413,13 @@ SELECT '' AS three, f.f1, f.f1 - '-10' AS x
 EXPLAIN VERBOSE
 SELECT '' AS one, f.f1 ^ '2.0' AS square_f1
    FROM FLOAT8_TBL f where f.f1 = '1004.3';
-                                QUERY PLAN                                
---------------------------------------------------------------------------
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
  Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=40)
    Output: ''::text, (f1 ^ '2'::double precision)
-   Filter: (f.f1 = '1004.3'::double precision)
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
-(5 rows)
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((f1 = 1004.3))
+(4 rows)
 
 --Testcase 54:
 SELECT '' AS one, f.f1 ^ '2.0' AS square_f1
@@ -450,7 +439,7 @@ SELECT '' AS five, f.f1, @f.f1 AS abs_f1
  Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=48)
    Output: ''::text, f1, (@ f1)
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
 (4 rows)
 
 --Testcase 56:
@@ -475,7 +464,7 @@ SELECT '' AS five, f.f1, trunc(f.f1) AS trunc_f1
  Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=48)
    Output: ''::text, f1, trunc(f1)
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
 (4 rows)
 
 --Testcase 58:
@@ -500,7 +489,7 @@ SELECT '' AS five, f.f1, round(f.f1) AS round_f1
  Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=48)
    Output: ''::text, f1, round(f1)
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
 (4 rows)
 
 --Testcase 60:
@@ -524,7 +513,7 @@ select ceil(f1) as ceil_f1 from float8_tbl f;
  Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=8)
    Output: ceil(f1)
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
 (4 rows)
 
 --Testcase 62:
@@ -546,7 +535,7 @@ select ceiling(f1) as ceiling_f1 from float8_tbl f;
  Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=8)
    Output: ceiling(f1)
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
 (4 rows)
 
 --Testcase 64:
@@ -569,7 +558,7 @@ select floor(f1) as floor_f1 from float8_tbl f;
  Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=8)
    Output: floor(f1)
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
 (4 rows)
 
 --Testcase 66:
@@ -592,7 +581,7 @@ select sign(f1) as sign_f1 from float8_tbl f;
  Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=8)
    Output: sign(f1)
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
 (4 rows)
 
 --Testcase 68:
@@ -647,14 +636,13 @@ EXPLAIN VERBOSE
 SELECT '' AS three, f.f1, |/f.f1 AS sqrt_f1
    FROM FLOAT8_TBL f
    WHERE f.f1 > '0.0';
-                                QUERY PLAN                                
---------------------------------------------------------------------------
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
  Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=48)
    Output: ''::text, f1, (|/ f1)
-   Filter: (f.f1 > '0'::double precision)
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
-(5 rows)
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((f1 > 0))
+(4 rows)
 
 --Testcase 75:
 SELECT '' AS three, f.f1, |/f.f1 AS sqrt_f1
@@ -673,14 +661,13 @@ EXPLAIN VERBOSE
 SELECT '' AS three, f.f1, exp(ln(f.f1)) AS exp_ln_f1
    FROM FLOAT8_TBL f
    WHERE f.f1 > '0.0';
-                                QUERY PLAN                                
---------------------------------------------------------------------------
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
  Foreign Scan on public.float8_tbl f  (cost=25.00..30.02 rows=5 width=48)
    Output: ''::text, f1, exp(ln(f1))
-   Filter: (f.f1 > '0'::double precision)
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
-(5 rows)
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((f1 > 0))
+(4 rows)
 
 --Testcase 77:
 SELECT '' AS three, f.f1, exp(ln(f.f1)) AS exp_ln_f1
@@ -701,7 +688,7 @@ SELECT '' AS five, f.f1, ||/f.f1 AS cbrt_f1 FROM FLOAT8_TBL f;
  Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=48)
    Output: ''::text, f1, (||/ f1)
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
 (4 rows)
 
 --Testcase 79:
@@ -723,7 +710,7 @@ SELECT '' AS five, f1 FROM FLOAT8_TBL;
  Foreign Scan on public.float8_tbl  (cost=25.00..30.00 rows=5 width=40)
    Output: ''::text, f1
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
 (4 rows)
 
 --Testcase 81:
@@ -742,16 +729,15 @@ EXPLAIN VERBOSE
 UPDATE FLOAT8_TBL
    SET f1 = FLOAT8_TBL.f1 * '-1'
    WHERE FLOAT8_TBL.f1 > '0.0';
-                                    QUERY PLAN                                    
-----------------------------------------------------------------------------------
+                                     QUERY PLAN                                      
+-------------------------------------------------------------------------------------
  Update on public.float8_tbl  (cost=25.00..30.01 rows=5 width=16)
-   Remote SQL: UPDATE `odbc_fdw_regress`.`float8_tbl` SET `f1` = ? WHERE `id` = ?
+   Remote SQL: UPDATE odbc_fdw_regress.float8_tbl SET f1 = ? WHERE id = ?
    ->  Foreign Scan on public.float8_tbl  (cost=25.00..30.01 rows=5 width=16)
          Output: (f1 * '-1'::double precision), id, id
-         Filter: (float8_tbl.f1 > '0'::double precision)
          Foreign Table Size: 5 b
-         Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
-(7 rows)
+         Remote SQL: SELECT f1, id FROM odbc_fdw_regress.float8_tbl WHERE ((f1 > 0))
+(6 rows)
 
 --Testcase 83:
 UPDATE FLOAT8_TBL
@@ -765,7 +751,7 @@ SELECT '' AS bad, f.f1 * '1e200' from FLOAT8_TBL f;
  Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=40)
    Output: ''::text, (f1 * '1e+200'::double precision)
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
 (4 rows)
 
 --Testcase 85:
@@ -779,7 +765,7 @@ SELECT '' AS bad, f.f1 ^ '1e200' from FLOAT8_TBL f;
  Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=40)
    Output: ''::text, (f1 ^ '1e+200'::double precision)
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
 (4 rows)
 
 --Testcase 87:
@@ -793,14 +779,13 @@ psql:sql/13.4/float8.sql:268: ERROR:  value out of range: overflow
 --Testcase 90:
 EXPLAIN VERBOSE
 SELECT '' AS bad, ln(f.f1) from FLOAT8_TBL f where f.f1 = '0.0' ;
-                                QUERY PLAN                                
---------------------------------------------------------------------------
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
  Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=40)
    Output: ''::text, ln(f1)
-   Filter: (f.f1 = '0'::double precision)
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
-(5 rows)
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((f1 = 0))
+(4 rows)
 
 --Testcase 91:
 SELECT '' AS bad, ln(f.f1) from FLOAT8_TBL f where f.f1 = '0.0' ;
@@ -808,14 +793,13 @@ psql:sql/13.4/float8.sql:278: ERROR:  cannot take logarithm of zero
 --Testcase 92:
 EXPLAIN VERBOSE
 SELECT '' AS bad, ln(f.f1) from FLOAT8_TBL f where f.f1 < '0.0' ;
-                                QUERY PLAN                                
---------------------------------------------------------------------------
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
  Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=40)
    Output: ''::text, ln(f1)
-   Filter: (f.f1 < '0'::double precision)
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
-(5 rows)
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((f1 < 0))
+(4 rows)
 
 --Testcase 93:
 SELECT '' AS bad, ln(f.f1) from FLOAT8_TBL f where f.f1 < '0.0' ;
@@ -828,7 +812,7 @@ SELECT '' AS bad, exp(f.f1) from FLOAT8_TBL f;
  Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=40)
    Output: ''::text, exp(f1)
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
 (4 rows)
 
 --Testcase 95:
@@ -842,7 +826,7 @@ SELECT '' AS bad, f.f1 / '0.0' from FLOAT8_TBL f;
  Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=40)
    Output: ''::text, (f1 / '0'::double precision)
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
 (4 rows)
 
 --Testcase 97:
@@ -856,7 +840,7 @@ SELECT '' AS five, f1 FROM FLOAT8_TBL;
  Foreign Scan on public.float8_tbl  (cost=25.00..30.00 rows=5 width=40)
    Output: ''::text, f1
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
 (4 rows)
 
 --Testcase 99:
@@ -925,11 +909,11 @@ DELETE FROM FLOAT8_TBL;
                                  QUERY PLAN                                  
 -----------------------------------------------------------------------------
  Delete on public.float8_tbl  (cost=25.00..30.00 rows=5 width=4)
-   Remote SQL: DELETE FROM `odbc_fdw_regress`.`float8_tbl` WHERE `id` = ?
+   Remote SQL: DELETE FROM odbc_fdw_regress.float8_tbl WHERE id = ?
    ->  Foreign Scan on public.float8_tbl  (cost=25.00..30.00 rows=5 width=4)
          Output: id
          Foreign Table Size: 5 b
-         Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
+         Remote SQL: SELECT id FROM odbc_fdw_regress.float8_tbl
 (6 rows)
 
 --Testcase 110:
@@ -937,10 +921,10 @@ DELETE FROM FLOAT8_TBL;
 --Testcase 111:
 EXPLAIN VERBOSE
 INSERT INTO FLOAT8_TBL(f1) VALUES ('0.0');
-                                     QUERY PLAN                                      
--------------------------------------------------------------------------------------
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
  Insert on public.float8_tbl  (cost=0.00..0.01 rows=1 width=12)
-   Remote SQL: INSERT INTO `odbc_fdw_regress`.`float8_tbl`(`f1`, `id`) VALUES (?, ?)
+   Remote SQL: INSERT INTO odbc_fdw_regress.float8_tbl(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=12)
          Output: '0'::double precision, nextval('float8_tbl_id_seq'::regclass)
 (4 rows)
@@ -950,10 +934,10 @@ INSERT INTO FLOAT8_TBL(f1) VALUES ('0.0');
 --Testcase 113:
 EXPLAIN VERBOSE
 INSERT INTO FLOAT8_TBL(f1) VALUES ('-34.84');
-                                     QUERY PLAN                                      
--------------------------------------------------------------------------------------
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
  Insert on public.float8_tbl  (cost=0.00..0.01 rows=1 width=12)
-   Remote SQL: INSERT INTO `odbc_fdw_regress`.`float8_tbl`(`f1`, `id`) VALUES (?, ?)
+   Remote SQL: INSERT INTO odbc_fdw_regress.float8_tbl(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=12)
          Output: '-34.84'::double precision, nextval('float8_tbl_id_seq'::regclass)
 (4 rows)
@@ -966,7 +950,7 @@ INSERT INTO FLOAT8_TBL(f1) VALUES ('-1004.30');
                                      QUERY PLAN                                      
 -------------------------------------------------------------------------------------
  Insert on public.float8_tbl  (cost=0.00..0.01 rows=1 width=12)
-   Remote SQL: INSERT INTO `odbc_fdw_regress`.`float8_tbl`(`f1`, `id`) VALUES (?, ?)
+   Remote SQL: INSERT INTO odbc_fdw_regress.float8_tbl(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=12)
          Output: '-1004.3'::double precision, nextval('float8_tbl_id_seq'::regclass)
 (4 rows)
@@ -979,7 +963,7 @@ INSERT INTO FLOAT8_TBL(f1) VALUES ('-1.2345678901234e+200');
                                             QUERY PLAN                                             
 ---------------------------------------------------------------------------------------------------
  Insert on public.float8_tbl  (cost=0.00..0.01 rows=1 width=12)
-   Remote SQL: INSERT INTO `odbc_fdw_regress`.`float8_tbl`(`f1`, `id`) VALUES (?, ?)
+   Remote SQL: INSERT INTO odbc_fdw_regress.float8_tbl(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=12)
          Output: '-1.2345678901234e+200'::double precision, nextval('float8_tbl_id_seq'::regclass)
 (4 rows)
@@ -992,7 +976,7 @@ INSERT INTO FLOAT8_TBL(f1) VALUES ('-1.2345678901234e-200');
                                             QUERY PLAN                                             
 ---------------------------------------------------------------------------------------------------
  Insert on public.float8_tbl  (cost=0.00..0.01 rows=1 width=12)
-   Remote SQL: INSERT INTO `odbc_fdw_regress`.`float8_tbl`(`f1`, `id`) VALUES (?, ?)
+   Remote SQL: INSERT INTO odbc_fdw_regress.float8_tbl(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=12)
          Output: '-1.2345678901234e-200'::double precision, nextval('float8_tbl_id_seq'::regclass)
 (4 rows)
@@ -1007,7 +991,7 @@ SELECT f1 FROM FLOAT8_TBL;
  Foreign Scan on public.float8_tbl  (cost=25.00..30.00 rows=5 width=8)
    Output: f1
    Foreign Table Size: 5 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`float8_tbl`
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
 (4 rows)
 
 --Testcase 122:

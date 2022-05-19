@@ -267,6 +267,11 @@ SELECT (f1::float4) AS float4 FROM FLOAT4_TBL;
     NaN
 (1 row)
 
+-- The comparison of floating-point values for equality is not safe
+-- because of the rounding errors when converting between binary and decimal.
+-- A floating-point value as written in an SQL statement may not be
+-- the same as the value represented internally.
+-- E.g: binary value of 1004.3 may be 1004.2999999999999
 --Testcase 67:
 ALTER FOREIGN TABLE FLOAT4_TBL OPTIONS (SET table 'float4_tbl');
 --Testcase 68:
@@ -285,35 +290,37 @@ SELECT f1 FROM FLOAT4_TBL f WHERE f.f1 <> '1004.3';
       f1       
 ---------------
              0
+        1004.3
         -34.84
  1.2345679e+20
  1.2345679e-20
-(4 rows)
+(5 rows)
 
 --Testcase 70:
 SELECT f1 FROM FLOAT4_TBL f WHERE f.f1 = '1004.3';
-   f1   
---------
- 1004.3
-(1 row)
+ f1 
+----
+(0 rows)
 
 --Testcase 71:
 SELECT f1 FROM FLOAT4_TBL f WHERE '1004.3' > f.f1;
       f1       
 ---------------
              0
+        1004.3
         -34.84
  1.2345679e-20
-(3 rows)
+(4 rows)
 
 --Testcase 72:
 SELECT f1 FROM FLOAT4_TBL f WHERE  f.f1 < '1004.3';
       f1       
 ---------------
              0
+        1004.3
         -34.84
  1.2345679e-20
-(3 rows)
+(4 rows)
 
 --Testcase 73:
 SELECT f.f1 FROM FLOAT4_TBL f WHERE '1004.3' >= f.f1;
@@ -378,7 +385,7 @@ SELECT f.f1, f.f1 - '-10' AS x FROM FLOAT4_TBL f
 -- test divide by zero
 --Testcase 79:
 SELECT f.f1 / '0.0' from FLOAT4_TBL f;
-psql:sql/14.0/float4.sql:201: ERROR:  division by zero
+psql:sql/14.0/float4.sql:205: ERROR:  division by zero
 --Testcase 80:
 SELECT f1 FROM FLOAT4_TBL;
       f1       
@@ -437,7 +444,7 @@ DELETE FROM FLOAT4_TBL;
 INSERT INTO FLOAT4_TBL(f1) VALUES ('32767.6'::float4);
 --Testcase 90:
 SELECT f1::int2 FROM FLOAT4_TBL;
-psql:sql/14.0/float4.sql:233: ERROR:  smallint out of range
+psql:sql/14.0/float4.sql:237: ERROR:  smallint out of range
 --Testcase 91:
 DELETE FROM FLOAT4_TBL;
 --Testcase 92:
@@ -455,7 +462,7 @@ DELETE FROM FLOAT4_TBL;
 INSERT INTO FLOAT4_TBL(f1) VALUES ('-32768.6'::float4);
 --Testcase 96:
 SELECT f1::int2 FROM FLOAT4_TBL;
-psql:sql/14.0/float4.sql:247: ERROR:  smallint out of range
+psql:sql/14.0/float4.sql:251: ERROR:  smallint out of range
 --Testcase 97:
 DELETE FROM FLOAT4_TBL;
 --Testcase 98:
@@ -473,7 +480,7 @@ DELETE FROM FLOAT4_TBL;
 INSERT INTO FLOAT4_TBL(f1) VALUES ('2147483647'::float4);
 --Testcase 102:
 SELECT f1::int4 FROM FLOAT4_TBL;
-psql:sql/14.0/float4.sql:261: ERROR:  integer out of range
+psql:sql/14.0/float4.sql:265: ERROR:  integer out of range
 --Testcase 103:
 DELETE FROM FLOAT4_TBL;
 --Testcase 104:
@@ -491,7 +498,7 @@ DELETE FROM FLOAT4_TBL;
 INSERT INTO FLOAT4_TBL(f1) VALUES ('-2147483900'::float4);
 --Testcase 108:
 SELECT f1::int4 FROM FLOAT4_TBL;
-psql:sql/14.0/float4.sql:275: ERROR:  integer out of range
+psql:sql/14.0/float4.sql:279: ERROR:  integer out of range
 --Testcase 109:
 DELETE FROM FLOAT4_TBL;
 --Testcase 110:
@@ -509,7 +516,7 @@ DELETE FROM FLOAT4_TBL;
 INSERT INTO FLOAT4_TBL(f1) VALUES ('9223372036854775807'::float4);
 --Testcase 114:
 SELECT f1::int8 FROM FLOAT4_TBL;
-psql:sql/14.0/float4.sql:289: ERROR:  bigint out of range
+psql:sql/14.0/float4.sql:293: ERROR:  bigint out of range
 --Testcase 115:
 DELETE FROM FLOAT4_TBL;
 --Testcase 116:
@@ -527,7 +534,7 @@ DELETE FROM FLOAT4_TBL;
 INSERT INTO FLOAT4_TBL(f1) VALUES ('-9223380000000000000'::float4);
 --Testcase 120:
 SELECT f1::int8 FROM FLOAT4_TBL;
-psql:sql/14.0/float4.sql:303: ERROR:  bigint out of range
+psql:sql/14.0/float4.sql:307: ERROR:  bigint out of range
 -- Test for correct input rounding in edge cases.
 -- These lists are from Paxson 1991, excluding subnormals and
 -- inputs of over 9 sig. digits.
@@ -613,6 +620,6 @@ SELECT float4send(f1) FROM FLOAT4_TBL;
 DROP FOREIGN TABLE FLOAT4_TBL;
 --Testcase 143:
 DROP SERVER :DB_SERVERNAME CASCADE;
-psql:sql/14.0/float4.sql:368: NOTICE:  drop cascades to user mapping for public on server postgres_server
+psql:sql/14.0/float4.sql:372: NOTICE:  drop cascades to user mapping for public on server postgres_server
 --Testcase 144:
 DROP EXTENSION :DB_EXTENSIONNAME CASCADE;

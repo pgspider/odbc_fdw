@@ -15,7 +15,7 @@
 ##########################################################################
 
 MODULE_big = odbc_fdw
-OBJS = odbc_fdw.o
+OBJS = odbc_fdw.o deparse.o
 
 EXTENSION = odbc_fdw
 DATA = odbc_fdw--0.5.2.sql \
@@ -26,7 +26,7 @@ DATA = odbc_fdw--0.5.2.sql \
   odbc_fdw--0.5.0--0.5.1.sql \
   odbc_fdw--0.5.1--0.5.2.sql
 
-REGRESS = postgresql/char postgresql/date postgresql/delete postgresql/float4 postgresql/float8 postgresql/insert postgresql/int4 postgresql/int8 postgresql/select postgresql/timestamp postgresql/update postgresql/ported_postgres_fdw 
+REGRESS = postgresql/new_test postgresql/char postgresql/date postgresql/delete postgresql/float4 postgresql/float8 postgresql/insert postgresql/int4 postgresql/int8 postgresql/select postgresql/timestamp postgresql/update postgresql/ported_postgres_fdw mysql/new_test mysql/char mysql/date mysql/delete mysql/float4 mysql/float8 mysql/insert mysql/int4 mysql/int8 mysql/select mysql/timestamp mysql/update mysql/ported_postgres_fdw 
 
 SHLIB_LINK = -lodbc
 

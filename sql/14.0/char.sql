@@ -71,6 +71,8 @@ EXPLAIN VERBOSE
 SELECT f1 FROM CHAR_TBL;
 --Testcase 24:
 SELECT f1 FROM CHAR_TBL;
+-- For Char, varchar, text in MySQL, comparison is case-insensitive.
+-- Result at MySQL will not same as Postgres.
 --Testcase 25:
 EXPLAIN VERBOSE
 SELECT c.f1

@@ -245,7 +245,11 @@ SELECT (f1::float4) AS float4 FROM FLOAT4_TBL;
     NaN
 (1 row)
 
---
+-- The comparison of floating-point values for equality is not safe
+-- because of the rounding errors when converting between binary and decimal.
+-- A floating-point value as written in an SQL statement may not be
+-- the same as the value represented internally.
+-- E.g: binary value of 1004.3 may be 1004.2999999999999
 --Testcase 61:
 ALTER FOREIGN TABLE FLOAT4_TBL OPTIONS (SET table 'float4_tbl');
 --Testcase 62:
@@ -264,35 +268,37 @@ SELECT '' AS four, f1 FROM FLOAT4_TBL f WHERE f.f1 <> '1004.3';
  four |      f1       
 ------+---------------
       |             0
+      |        1004.3
       |        -34.84
       | 1.2345679e+20
       | 1.2345679e-20
-(4 rows)
+(5 rows)
 
 --Testcase 64:
 SELECT '' AS one, f1 FROM FLOAT4_TBL f WHERE f.f1 = '1004.3';
- one |   f1   
------+--------
-     | 1004.3
-(1 row)
+ one | f1 
+-----+----
+(0 rows)
 
 --Testcase 65:
 SELECT '' AS three, f1 FROM FLOAT4_TBL f WHERE '1004.3' > f.f1;
  three |      f1       
 -------+---------------
        |             0
+       |        1004.3
        |        -34.84
        | 1.2345679e-20
-(3 rows)
+(4 rows)
 
 --Testcase 66:
 SELECT '' AS three, f1 FROM FLOAT4_TBL f WHERE  f.f1 < '1004.3';
  three |      f1       
 -------+---------------
        |             0
+       |        1004.3
        |        -34.84
        | 1.2345679e-20
-(3 rows)
+(4 rows)
 
 --Testcase 67:
 SELECT '' AS four, f.f1 FROM FLOAT4_TBL f WHERE '1004.3' >= f.f1;
@@ -357,7 +363,7 @@ SELECT '' AS three, f.f1, f.f1 - '-10' AS x FROM FLOAT4_TBL f
 -- test divide by zero
 --Testcase 73:
 SELECT '' AS bad, f.f1 / '0.0' from FLOAT4_TBL f;
-psql:sql/13.4/float4.sql:183: ERROR:  division by zero
+psql:sql/13.4/float4.sql:187: ERROR:  division by zero
 --Testcase 74:
 SELECT '' AS five, f1 FROM FLOAT4_TBL;
  five |      f1       
@@ -418,7 +424,7 @@ DELETE FROM FLOAT4_TBL;
 INSERT INTO FLOAT4_TBL(f1) VALUES ('32767.6'::float4);
 --Testcase 84:
 SELECT f1::int2 FROM FLOAT4_TBL;
-psql:sql/13.4/float4.sql:216: ERROR:  smallint out of range
+psql:sql/13.4/float4.sql:220: ERROR:  smallint out of range
 --
 --Testcase 85:
 DELETE FROM FLOAT4_TBL;
@@ -438,7 +444,7 @@ DELETE FROM FLOAT4_TBL;
 INSERT INTO FLOAT4_TBL(f1) VALUES ('-32768.6'::float4);
 --Testcase 90:
 SELECT f1::int2 FROM FLOAT4_TBL;
-psql:sql/13.4/float4.sql:230: ERROR:  smallint out of range
+psql:sql/13.4/float4.sql:234: ERROR:  smallint out of range
 --
 --Testcase 91:
 DELETE FROM FLOAT4_TBL;
@@ -458,7 +464,7 @@ DELETE FROM FLOAT4_TBL;
 INSERT INTO FLOAT4_TBL(f1) VALUES ('2147483647'::float4);
 --Testcase 96:
 SELECT f1::int4 FROM FLOAT4_TBL;
-psql:sql/13.4/float4.sql:244: ERROR:  integer out of range
+psql:sql/13.4/float4.sql:248: ERROR:  integer out of range
 --
 --Testcase 97:
 DELETE FROM FLOAT4_TBL;
@@ -478,7 +484,7 @@ DELETE FROM FLOAT4_TBL;
 INSERT INTO FLOAT4_TBL(f1) VALUES ('-2147483900'::float4);
 --Testcase 102:
 SELECT f1::int4 FROM FLOAT4_TBL;
-psql:sql/13.4/float4.sql:258: ERROR:  integer out of range
+psql:sql/13.4/float4.sql:262: ERROR:  integer out of range
 --
 --Testcase 103:
 DELETE FROM FLOAT4_TBL;
@@ -498,7 +504,7 @@ DELETE FROM FLOAT4_TBL;
 INSERT INTO FLOAT4_TBL(f1) VALUES ('9223372036854775807'::float4);
 --Testcase 108:
 SELECT f1::int8 FROM FLOAT4_TBL;
-psql:sql/13.4/float4.sql:272: ERROR:  bigint out of range
+psql:sql/13.4/float4.sql:276: ERROR:  bigint out of range
 --
 --Testcase 109:
 DELETE FROM FLOAT4_TBL;
@@ -518,7 +524,7 @@ DELETE FROM FLOAT4_TBL;
 INSERT INTO FLOAT4_TBL(f1) VALUES ('-9223380000000000000'::float4);
 --Testcase 114:
 SELECT f1::int8 FROM FLOAT4_TBL;
-psql:sql/13.4/float4.sql:286: ERROR:  bigint out of range
+psql:sql/13.4/float4.sql:290: ERROR:  bigint out of range
 -- Test for correct input rounding in edge cases.
 -- These lists are from Paxson 1991, excluding subnormals and
 -- inputs of over 9 sig. digits.
@@ -604,6 +610,6 @@ SELECT float4send(f1) FROM FLOAT4_TBL;
 DROP FOREIGN TABLE FLOAT4_TBL;
 --Testcase 137:
 DROP SERVER :DB_SERVERNAME CASCADE;
-psql:sql/13.4/float4.sql:351: NOTICE:  drop cascades to user mapping for public on server postgres_server
+psql:sql/13.4/float4.sql:355: NOTICE:  drop cascades to user mapping for public on server postgres_server
 --Testcase 138:
 DROP EXTENSION :DB_EXTENSIONNAME CASCADE;

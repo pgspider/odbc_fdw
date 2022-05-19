@@ -39,10 +39,10 @@ CREATE FOREIGN TABLE CHAR_TBL (f1 char, id serial OPTIONS (key 'true')) SERVER :
 --Testcase 7:
 EXPLAIN VERBOSE
 INSERT INTO char_tbl VALUES ('a');
-                                    QUERY PLAN                                     
------------------------------------------------------------------------------------
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
  Insert on public.char_tbl  (cost=0.00..0.01 rows=1 width=12)
-   Remote SQL: INSERT INTO `odbc_fdw_regress`.`char_tbl`(`f1`, `id`) VALUES (?, ?)
+   Remote SQL: INSERT INTO odbc_fdw_regress.char_tbl(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=12)
          Output: 'a'::character(1), nextval('char_tbl_id_seq'::regclass)
 (4 rows)
@@ -52,10 +52,10 @@ INSERT INTO char_tbl VALUES ('a');
 --Testcase 9:
 EXPLAIN VERBOSE
 INSERT INTO char_tbl VALUES ('A');
-                                    QUERY PLAN                                     
------------------------------------------------------------------------------------
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
  Insert on public.char_tbl  (cost=0.00..0.01 rows=1 width=12)
-   Remote SQL: INSERT INTO `odbc_fdw_regress`.`char_tbl`(`f1`, `id`) VALUES (?, ?)
+   Remote SQL: INSERT INTO odbc_fdw_regress.char_tbl(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=12)
          Output: 'A'::character(1), nextval('char_tbl_id_seq'::regclass)
 (4 rows)
@@ -66,10 +66,10 @@ INSERT INTO char_tbl VALUES ('A');
 --Testcase 11:
 EXPLAIN VERBOSE
 INSERT INTO char_tbl VALUES ('1');
-                                    QUERY PLAN                                     
------------------------------------------------------------------------------------
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
  Insert on public.char_tbl  (cost=0.00..0.01 rows=1 width=12)
-   Remote SQL: INSERT INTO `odbc_fdw_regress`.`char_tbl`(`f1`, `id`) VALUES (?, ?)
+   Remote SQL: INSERT INTO odbc_fdw_regress.char_tbl(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=12)
          Output: '1'::character(1), nextval('char_tbl_id_seq'::regclass)
 (4 rows)
@@ -79,10 +79,10 @@ INSERT INTO char_tbl VALUES ('1');
 --Testcase 13:
 EXPLAIN VERBOSE
 INSERT INTO char_tbl VALUES (2);
-                                    QUERY PLAN                                     
------------------------------------------------------------------------------------
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
  Insert on public.char_tbl  (cost=0.00..0.01 rows=1 width=12)
-   Remote SQL: INSERT INTO `odbc_fdw_regress`.`char_tbl`(`f1`, `id`) VALUES (?, ?)
+   Remote SQL: INSERT INTO odbc_fdw_regress.char_tbl(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=12)
          Output: '2'::character(1), nextval('char_tbl_id_seq'::regclass)
 (4 rows)
@@ -92,10 +92,10 @@ INSERT INTO char_tbl VALUES (2);
 --Testcase 15:
 EXPLAIN VERBOSE
 INSERT INTO char_tbl VALUES ('3');
-                                    QUERY PLAN                                     
------------------------------------------------------------------------------------
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
  Insert on public.char_tbl  (cost=0.00..0.01 rows=1 width=12)
-   Remote SQL: INSERT INTO `odbc_fdw_regress`.`char_tbl`(`f1`, `id`) VALUES (?, ?)
+   Remote SQL: INSERT INTO odbc_fdw_regress.char_tbl(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=12)
          Output: '3'::character(1), nextval('char_tbl_id_seq'::regclass)
 (4 rows)
@@ -106,10 +106,10 @@ INSERT INTO char_tbl VALUES ('3');
 --Testcase 17:
 EXPLAIN VERBOSE
 INSERT INTO char_tbl VALUES ('');
-                                    QUERY PLAN                                     
------------------------------------------------------------------------------------
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
  Insert on public.char_tbl  (cost=0.00..0.01 rows=1 width=12)
-   Remote SQL: INSERT INTO `odbc_fdw_regress`.`char_tbl`(`f1`, `id`) VALUES (?, ?)
+   Remote SQL: INSERT INTO odbc_fdw_regress.char_tbl(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=12)
          Output: ' '::character(1), nextval('char_tbl_id_seq'::regclass)
 (4 rows)
@@ -127,10 +127,10 @@ psql:sql/13.4/char.sql:62: ERROR:  value too long for type character(1)
 --Testcase 21:
 EXPLAIN VERBOSE
 INSERT INTO char_tbl VALUES ('c     ');
-                                    QUERY PLAN                                     
------------------------------------------------------------------------------------
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
  Insert on public.char_tbl  (cost=0.00..0.01 rows=1 width=12)
-   Remote SQL: INSERT INTO `odbc_fdw_regress`.`char_tbl`(`f1`, `id`) VALUES (?, ?)
+   Remote SQL: INSERT INTO odbc_fdw_regress.char_tbl(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=12)
          Output: 'c'::character(1), nextval('char_tbl_id_seq'::regclass)
 (4 rows)
@@ -145,7 +145,7 @@ SELECT f1 FROM CHAR_TBL;
  Foreign Scan on public.char_tbl  (cost=25.00..32.00 rows=7 width=8)
    Output: f1
    Foreign Table Size: 7 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`char_tbl`
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.char_tbl
 (4 rows)
 
 --Testcase 24:
@@ -161,19 +161,20 @@ SELECT f1 FROM CHAR_TBL;
  c
 (7 rows)
 
+-- For Char, varchar, text in MySQL, comparison is case-insensitive.
+-- Result at MySQL will not same as Postgres.
 --Testcase 25:
 EXPLAIN VERBOSE
 SELECT c.f1
    FROM CHAR_TBL c
    WHERE c.f1 <> 'a';
-                              QUERY PLAN                               
------------------------------------------------------------------------
+                                 QUERY PLAN                                 
+----------------------------------------------------------------------------
  Foreign Scan on public.char_tbl c  (cost=25.00..32.00 rows=7 width=8)
    Output: f1
-   Filter: (c.f1 <> 'a'::bpchar)
    Foreign Table Size: 7 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`char_tbl`
-(5 rows)
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.char_tbl WHERE ((f1 <> 'a'))
+(4 rows)
 
 --Testcase 26:
 SELECT c.f1
@@ -181,27 +182,25 @@ SELECT c.f1
    WHERE c.f1 <> 'a';
  f1 
 ----
- A
  1
  2
  3
   
  c
-(6 rows)
+(5 rows)
 
 --Testcase 27:
 EXPLAIN VERBOSE
 SELECT c.f1
    FROM CHAR_TBL c
    WHERE c.f1 = 'a';
-                              QUERY PLAN                               
------------------------------------------------------------------------
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
  Foreign Scan on public.char_tbl c  (cost=25.00..32.00 rows=7 width=8)
    Output: f1
-   Filter: (c.f1 = 'a'::bpchar)
    Foreign Table Size: 7 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`char_tbl`
-(5 rows)
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.char_tbl WHERE ((f1 = 'a'))
+(4 rows)
 
 --Testcase 28:
 SELECT c.f1
@@ -210,21 +209,21 @@ SELECT c.f1
  f1 
 ----
  a
-(1 row)
+ A
+(2 rows)
 
 --Testcase 29:
 EXPLAIN VERBOSE
 SELECT c.f1
    FROM CHAR_TBL c
    WHERE c.f1 < 'a';
-                              QUERY PLAN                               
------------------------------------------------------------------------
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
  Foreign Scan on public.char_tbl c  (cost=25.00..32.00 rows=7 width=8)
    Output: f1
-   Filter: (c.f1 < 'a'::bpchar)
    Foreign Table Size: 7 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`char_tbl`
-(5 rows)
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.char_tbl WHERE ((f1 < 'a'))
+(4 rows)
 
 --Testcase 30:
 SELECT c.f1
@@ -243,14 +242,13 @@ EXPLAIN VERBOSE
 SELECT c.f1
    FROM CHAR_TBL c
    WHERE c.f1 <= 'a';
-                              QUERY PLAN                               
------------------------------------------------------------------------
+                                 QUERY PLAN                                 
+----------------------------------------------------------------------------
  Foreign Scan on public.char_tbl c  (cost=25.00..32.00 rows=7 width=8)
    Output: f1
-   Filter: (c.f1 <= 'a'::bpchar)
    Foreign Table Size: 7 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`char_tbl`
-(5 rows)
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.char_tbl WHERE ((f1 <= 'a'))
+(4 rows)
 
 --Testcase 32:
 SELECT c.f1
@@ -259,25 +257,25 @@ SELECT c.f1
  f1 
 ----
  a
+ A
  1
  2
  3
   
-(5 rows)
+(6 rows)
 
 --Testcase 33:
 EXPLAIN VERBOSE
 SELECT c.f1
    FROM CHAR_TBL c
    WHERE c.f1 > 'a';
-                              QUERY PLAN                               
------------------------------------------------------------------------
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
  Foreign Scan on public.char_tbl c  (cost=25.00..32.00 rows=7 width=8)
    Output: f1
-   Filter: (c.f1 > 'a'::bpchar)
    Foreign Table Size: 7 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`char_tbl`
-(5 rows)
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.char_tbl WHERE ((f1 > 'a'))
+(4 rows)
 
 --Testcase 34:
 SELECT c.f1
@@ -285,23 +283,21 @@ SELECT c.f1
    WHERE c.f1 > 'a';
  f1 
 ----
- A
  c
-(2 rows)
+(1 row)
 
 --Testcase 35:
 EXPLAIN VERBOSE
 SELECT c.f1
    FROM CHAR_TBL c
    WHERE c.f1 >= 'a';
-                              QUERY PLAN                               
------------------------------------------------------------------------
+                                 QUERY PLAN                                 
+----------------------------------------------------------------------------
  Foreign Scan on public.char_tbl c  (cost=25.00..32.00 rows=7 width=8)
    Output: f1
-   Filter: (c.f1 >= 'a'::bpchar)
    Foreign Table Size: 7 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`char_tbl`
-(5 rows)
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.char_tbl WHERE ((f1 >= 'a'))
+(4 rows)
 
 --Testcase 36:
 SELECT c.f1
@@ -324,10 +320,10 @@ CREATE FOREIGN TABLE CHAR_TBL(f1 char(4), id serial OPTIONS (key 'true')) SERVER
 --Testcase 39:
 EXPLAIN VERBOSE
 INSERT INTO CHAR_TBL VALUES ('a');
-                                     QUERY PLAN                                      
--------------------------------------------------------------------------------------
+                                 QUERY PLAN                                  
+-----------------------------------------------------------------------------
  Insert on public.char_tbl  (cost=0.00..0.01 rows=1 width=24)
-   Remote SQL: INSERT INTO `odbc_fdw_regress`.`char_tbl_2`(`f1`, `id`) VALUES (?, ?)
+   Remote SQL: INSERT INTO odbc_fdw_regress.char_tbl_2(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=24)
          Output: 'a   '::character(4), nextval('char_tbl_id_seq'::regclass)
 (4 rows)
@@ -337,10 +333,10 @@ INSERT INTO CHAR_TBL VALUES ('a');
 --Testcase 41:
 EXPLAIN VERBOSE
 INSERT INTO CHAR_TBL VALUES ('ab');
-                                     QUERY PLAN                                      
--------------------------------------------------------------------------------------
+                                 QUERY PLAN                                  
+-----------------------------------------------------------------------------
  Insert on public.char_tbl  (cost=0.00..0.01 rows=1 width=24)
-   Remote SQL: INSERT INTO `odbc_fdw_regress`.`char_tbl_2`(`f1`, `id`) VALUES (?, ?)
+   Remote SQL: INSERT INTO odbc_fdw_regress.char_tbl_2(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=24)
          Output: 'ab  '::character(4), nextval('char_tbl_id_seq'::regclass)
 (4 rows)
@@ -350,10 +346,10 @@ INSERT INTO CHAR_TBL VALUES ('ab');
 --Testcase 43:
 EXPLAIN VERBOSE
 INSERT INTO CHAR_TBL VALUES ('abcd');
-                                     QUERY PLAN                                      
--------------------------------------------------------------------------------------
+                                 QUERY PLAN                                  
+-----------------------------------------------------------------------------
  Insert on public.char_tbl  (cost=0.00..0.01 rows=1 width=24)
-   Remote SQL: INSERT INTO `odbc_fdw_regress`.`char_tbl_2`(`f1`, `id`) VALUES (?, ?)
+   Remote SQL: INSERT INTO odbc_fdw_regress.char_tbl_2(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=24)
          Output: 'abcd'::character(4), nextval('char_tbl_id_seq'::regclass)
 (4 rows)
@@ -363,17 +359,17 @@ INSERT INTO CHAR_TBL VALUES ('abcd');
 --Testcase 45:
 EXPLAIN VERBOSE
 INSERT INTO CHAR_TBL VALUES ('abcde');
-psql:sql/13.4/char.sql:154: ERROR:  value too long for type character(4)
+psql:sql/13.4/char.sql:156: ERROR:  value too long for type character(4)
 --Testcase 46:
 INSERT INTO CHAR_TBL VALUES ('abcde');
-psql:sql/13.4/char.sql:156: ERROR:  value too long for type character(4)
+psql:sql/13.4/char.sql:158: ERROR:  value too long for type character(4)
 --Testcase 47:
 EXPLAIN VERBOSE
 INSERT INTO CHAR_TBL VALUES ('abcd    ');
-                                     QUERY PLAN                                      
--------------------------------------------------------------------------------------
+                                 QUERY PLAN                                  
+-----------------------------------------------------------------------------
  Insert on public.char_tbl  (cost=0.00..0.01 rows=1 width=24)
-   Remote SQL: INSERT INTO `odbc_fdw_regress`.`char_tbl_2`(`f1`, `id`) VALUES (?, ?)
+   Remote SQL: INSERT INTO odbc_fdw_regress.char_tbl_2(f1, id) VALUES (?, ?)
    ->  Result  (cost=0.00..0.01 rows=1 width=24)
          Output: 'abcd'::character(4), nextval('char_tbl_id_seq'::regclass)
 (4 rows)
@@ -387,7 +383,7 @@ EXPLAIN VERBOSE SELECT f1 FROM CHAR_TBL;
  Foreign Scan on public.char_tbl  (cost=25.00..29.00 rows=4 width=20)
    Output: f1
    Foreign Table Size: 4 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`char_tbl_2`
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.char_tbl_2
 (4 rows)
 
 --Testcase 50:
@@ -402,7 +398,7 @@ SELECT f1 FROM CHAR_TBL;
 
 --Testcase 51:
 DROP SERVER :DB_SERVERNAME CASCADE;
-psql:sql/13.4/char.sql:168: NOTICE:  drop cascades to 2 other objects
+psql:sql/13.4/char.sql:170: NOTICE:  drop cascades to 2 other objects
 DETAIL:  drop cascades to user mapping for public on server mysql_server
 drop cascades to foreign table char_tbl
 --Testcase 52:

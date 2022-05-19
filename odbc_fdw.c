@@ -10,8 +10,8 @@
  * Author: Zheng Yang <zhengyang4k@gmail.com>
  * Updated to 9.2+ by Gunnar "Nick" Bluth <nick@pro-open.de>
  *   based on tds_fdw code from Geoff Montee
- * Version 0.5.2.3-1 or higher
- *   updated by Toshiba Corporation
+ * Version 0.6 or higher
+ *   by Takuya Koda <takuya.koda@toshiba.co.jp>
  *
  * IDENTIFICATION
  *      odbc_fdw/odbc_fdw.c
@@ -24,6 +24,8 @@
 
 #include "postgres.h"
 #include <string.h>
+
+#include "odbc_fdw.h"
 
 #include "funcapi.h"
 #include "access/reloptions.h"
@@ -38,6 +40,7 @@
 #include "utils/memutils.h"
 #include "utils/builtins.h"
 #include "utils/relcache.h"
+#include "utils/syscache.h"
 #include "storage/lock.h"
 #include "miscadmin.h"
 #include "mb/pg_wchar.h"
@@ -51,9 +54,11 @@
 #include "nodes/pg_list.h"
 
 #include "optimizer/appendinfo.h"
+#include "optimizer/optimizer.h"
 #include "optimizer/pathnode.h"
 #include "optimizer/restrictinfo.h"
 #include "optimizer/planmain.h"
+#include "optimizer/tlist.h"
 
 #include "access/tupdesc.h"
 
@@ -87,6 +92,11 @@
 #include "utils/guc.h"
 #include "utils/date.h"
 #include "utils/datetime.h"
+
+#if (PG_VERSION_NUM < 140000)
+/* source-code-compatibility hacks for pull_varnos() API change */
+#define make_restrictinfo(a,b,c,d,e,f,g,h,i) make_restrictinfo_new(a,b,c,d,e,f,g,h,i)
+#endif
 
 PG_MODULE_MAGIC;
 
@@ -148,6 +158,21 @@ enum OdbcFdwModifyPrivateIndex
 	OdbcFdwModifyPrivateTargetAttnums,
 };
 
+/*
+ * Indexes of FDW-private information stored in fdw_private lists.
+ *
+ * These items are indexed with the enum FdwScanPrivateIndex, so an item
+ * can be fetched with list_nth().  For example, to get the SELECT statement:
+ *		sql = strVal(list_nth(fdw_private, FdwScanPrivateSelectSql));
+ */
+enum FdwScanPrivateIndex
+{
+	/* SQL statement to execute remotely (as a String node) */
+	FdwScanPrivateSelectSql,
+	/* Integer list of attribute numbers retrieved by the SELECT */
+	FdwScanPrivateRetrievedAttrs
+};
+
 typedef struct odbcFdwOptions
 {
 	char  *schema;     /* Foreign schema name */
@@ -169,11 +194,9 @@ typedef struct odbcFdwScanState
 	SQLHSTMT        stmt;
 	char            *query;
 	bool            query_executed;
-	int             num_of_result_cols;
-	int             num_of_table_cols;
+	List		   *retrieved_attrs;	/* list of target attribute numbers */
 	StringInfoData  *table_columns;
 	bool            first_iteration;
-	List            *col_position_mask;
 	List            *col_size_array;
 	List            *col_conversion_array;
 	char            *sql_count;
@@ -344,6 +367,11 @@ static int	odbcIsForeignRelUpdatable(Relation rel);
 static void odbcExplainForeignModify(ModifyTableState *mtstate, ResultRelInfo *rinfo, List *fdw_private, int subplan_index, ExplainState *es);
 static void odbcBeginForeignInsert(ModifyTableState *mtstate, ResultRelInfo *resultRelInfo);
 static void odbcEndForeignInsert(EState *estate, ResultRelInfo *resultRelInfo);
+static void odbcGetForeignUpperPaths(PlannerInfo *root,
+									  UpperRelationKind stage,
+									  RelOptInfo *input_rel,
+									  RelOptInfo *output_rel,
+									  void *extra);
 
 /*
  * helper functions
@@ -359,7 +387,7 @@ static void odbc_disconnection(SQLHENV *env, SQLHDBC *dbc);
 static void sql_data_type(SQLSMALLINT odbc_data_type, SQLULEN column_size, SQLSMALLINT decimal_digits, SQLSMALLINT nullable, StringInfo sql_type);
 static void odbcGetOptions(Oid server_oid, List *add_options, odbcFdwOptions *extracted_options);
 static void odbcGetTableOptions(Oid foreigntableid, odbcFdwOptions *extracted_options);
-static void odbcGetTableSize(odbcFdwOptions* options, unsigned int *size);
+static void odbcGetTableInfo(odbcFdwOptions* options, unsigned int *size, char **quote_char_out, char **name_qualifier_char_out);
 static void check_return(SQLRETURN ret, char *msg, SQLHANDLE handle, SQLSMALLINT type);
 static void odbcConnStr(StringInfoData *conn_str, odbcFdwOptions* options);
 static char* get_schema_name(odbcFdwOptions *options);
@@ -371,10 +399,19 @@ static TupleTableSlot *execute_foreign_modify(EState *estate, ResultRelInfo *res
 static void bind_stmt_params(odbcFdwModifyState *fmstate, TupleTableSlot *slot);
 static void bind_stmt_param(odbcFdwModifyState *fmstate, Oid type, int attnum, Datum value);
 static void bindJunkColumnValue(odbcFdwModifyState *fmstate, TupleTableSlot *slot, TupleTableSlot *planSlot, Oid foreignTableId, int bindnum);
-static int	set_transmission_modes(void);
-static void reset_transmission_modes(int nestlevel);
 static void release_odbc_resources(odbcFdwModifyState *fmstate);
 static SQLRETURN validate_retrieved_string(SQLHSTMT stmt, SQLUSMALLINT ColumnNumber, const char *string_value, bool *is_mapped, bool *is_empty_retrieved_string);
+static void odbc_get_column_info(SQLHSTMT *stmt, ForeignScanState *node, odbcFdwScanState *festate);
+static char* odbc_get_attr_value(odbcFdwScanState *festate, int attid, Oid pgtype, SQLLEN *result_size, ColumnConversion conversion);
+static Datum odbc_convert_to_pg(Oid pgtyp, int pgtypmod, char* value, int size, ColumnConversion conversion);
+static void odbc_make_tuple_from_result_row(SQLHSTMT * stmt,
+											TupleDesc tupleDescriptor,
+											List *retrieved_attrs,
+											Datum *row,
+											bool *is_null,
+											odbcFdwScanState * festate);
+static void odbc_add_foreign_grouping_paths(PlannerInfo *root, RelOptInfo *input_rel,
+											RelOptInfo *grouped_rel, GroupPathExtraData *extra);
 
 #define REL_ALIAS_PREFIX	"r"
 /* Handy macro to add relation name qualification */
@@ -383,8 +420,6 @@ static SQLRETURN validate_retrieved_string(SQLHSTMT stmt, SQLUSMALLINT ColumnNum
 static void deparseInsertSql(StringInfo buf, RangeTblEntry *rte, Index rtindex, Relation rel, List *targetAttrs, bool doNothing, List *withCheckOptionList, char *name_qualifier_char, char *quote_char);
 static void deparseUpdateSql(StringInfo buf, RangeTblEntry *rte, Index rtindex, Relation rel, List *attname, List *targetAttrs, List *withCheckOptionList, char *name_qualifier_char, char *quote_char);
 static void deparseDeleteSql(StringInfo buf, RangeTblEntry *rte, Index rtindex, Relation rel, List *name, char *name_qualifier_char, char *quote_char);
-static void deparseColumnRef(StringInfo buf, int varno, int varattno, RangeTblEntry *rte, bool qualify_col, char *quote_char);
-static void deparseRelation(StringInfo buf, Relation rel, char *name_qualifier_char, char *quote_char);
 
 /*
  * Check if string pointer is NULL or points to empty string
@@ -440,7 +475,7 @@ odbc_fdw_handler(PG_FUNCTION_ARGS)
 	fdwroutine->GetForeignJoinPaths = NULL;
 
 	/* Support functions for upper relation push-down */
-	fdwroutine->GetForeignUpperPaths = NULL;
+	fdwroutine->GetForeignUpperPaths = odbcGetForeignUpperPaths;
 
 	PG_RETURN_POINTER(fdwroutine);
 }
@@ -858,40 +893,6 @@ sql_data_type(
 	};
 }
 
-static SQLULEN
-minimum_buffer_size(SQLSMALLINT odbc_data_type)
-{
-	switch(odbc_data_type)
-	{
-	case SQL_DECIMAL :
-	case SQL_NUMERIC :
-		return 32;
-	case SQL_INTEGER :
-		return 12;
-	case SQL_REAL :
-	case SQL_FLOAT :
-		return 18;
-	case SQL_DOUBLE :
-		return 26;
-	case SQL_SMALLINT :
-	case SQL_TINYINT :
-		return 6;
-	case SQL_BIGINT :
-		return 21;
-	case SQL_TYPE_DATE :
-	case SQL_DATE :
-		return 10;
-	case SQL_TYPE_TIME :
-	case SQL_TIME :
-		return 8;
-	case SQL_TYPE_TIMESTAMP :
-	case SQL_TIMESTAMP :
-		return 20;
-	default :
-		return 0;
-	};
-}
-
 /*
  * Fetch the options for a server and options list
  */
@@ -1042,10 +1043,13 @@ static void odbcConnStr(StringInfoData *conn_str, odbcFdwOptions* options)
 }
 
 /*
- * get table size of a table
+ * odbcGetTableInfo:
+ *	- table size
+ *	- quote indentifier char
+ *	- name qualifier char
  */
 static void
-odbcGetTableSize(odbcFdwOptions* options, unsigned int *size)
+odbcGetTableInfo(odbcFdwOptions* options, unsigned int *size, char **quote_char_out, char **name_qualifier_char_out)
 {
 	SQLHENV env;
 	SQLHDBC dbc;
@@ -1069,28 +1073,34 @@ odbcGetTableSize(odbcFdwOptions* options, unsigned int *size)
 	/* Allocate a statement handle */
 	SQLAllocHandle(SQL_HANDLE_STMT, dbc, &stmt);
 
+	/* Get quote char */
+	getQuoteChar(dbc, &quote_char);
+
+	/* Get name qualifier char */
+	getNameQualifierChar(dbc, &name_qualifier_char);
+
+	if (quote_char_out)
+		*quote_char_out = quote_char.data;
+
+	if (name_qualifier_char_out)
+		*name_qualifier_char_out = name_qualifier_char.data;
+
 	if (is_blank_string(options->sql_count))
 	{
-		/* Get quote char */
-		getQuoteChar(dbc, &quote_char);
-
-		/* Get name qualifier char */
-		getNameQualifierChar(dbc, &name_qualifier_char);
-
 		initStringInfo(&sql_str);
 		if (is_blank_string(options->sql_query))
 		{
 			if (is_blank_string(schema_name))
 			{
-				appendStringInfo(&sql_str, "SELECT COUNT(*) FROM %s%s%s",
-				                 quote_char.data, options->table, quote_char.data);
+				appendStringInfo(&sql_str, "SELECT COUNT(*) FROM %s",
+				                 odbc_quote_identifier(options->table, quote_char.data, false));
 			}
 			else
 			{
-				appendStringInfo(&sql_str, "SELECT COUNT(*) FROM %s%s%s%s%s%s%s",
-				                 quote_char.data, schema_name, quote_char.data,
+				appendStringInfo(&sql_str, "SELECT COUNT(*) FROM %s%s%s",
+				                 odbc_quote_identifier(schema_name, quote_char.data, false),
 				                 name_qualifier_char.data,
-				                 quote_char.data, options->table, quote_char.data);
+				                 odbc_quote_identifier(options->table, quote_char.data, false));
 			}
 		}
 		else
@@ -1196,7 +1206,7 @@ odbc_table_size(PG_FUNCTION_ARGS)
 
 	tableOptions = lappend(tableOptions, elem);
 	odbcGetOptions(serverOid, tableOptions, &options);
-	odbcGetTableSize(&options, &tableSize);
+	odbcGetTableInfo(&options, &tableSize, NULL, NULL);
 
 	PG_RETURN_INT32(tableSize);
 }
@@ -1221,7 +1231,7 @@ odbc_query_size(PG_FUNCTION_ARGS)
 	queryOptions = lappend(queryOptions, elem);
 	serverOid = oid_from_server_name(serverName);
 	odbcGetOptions(serverOid, queryOptions, &options);
-	odbcGetTableSize(&options, &querySize);
+	odbcGetTableInfo(&options, &querySize, NULL, NULL);
 
 	PG_RETURN_INT32(querySize);
 }
@@ -1352,80 +1362,6 @@ Datum odbc_tables_list(PG_FUNCTION_ARGS)
 }
 
 /*
- * get quals in the select if there is one
- */
-static void
-odbcGetQual(Node *node, TupleDesc tupdesc, List *col_mapping_list, char **key, char **value, bool *pushdown)
-{
-	ListCell *col_mapping;
-	*key = NULL;
-	*value = NULL;
-	*pushdown = false;
-
-	elog_debug("%s", __func__);
-
-	if (!node)
-		return;
-
-	if (IsA(node, OpExpr))
-	{
-		OpExpr  *op = (OpExpr *) node;
-		Node    *left, *right;
-		Index   varattno;
-
-		if (list_length(op->args) != 2)
-			return;
-
-		left = list_nth(op->args, 0);
-		if (!IsA(left, Var))
-
-			return;
-
-		varattno = ((Var *) left)->varattno;
-
-		right = list_nth(op->args, 1);
-
-		if (IsA(right, Const))
-		{
-			StringInfoData  buf;
-			initStringInfo(&buf);
-			/* And get the column and value... */
-			*key = NameStr(TupleDescAttr(tupdesc, varattno - 1)->attname);
-
-			if (((Const *) right)->consttype == PROCID_TEXTCONST)
-				*value = TextDatumGetCString(((Const *) right)->constvalue);
-			else
-			{
-				return;
-			}
-
-			/* convert qual keys to mapped couchdb attribute name */
-			foreach(col_mapping, col_mapping_list)
-			{
-				DefElem *def = (DefElem *) lfirst(col_mapping);
-				if (strcmp(def->defname, *key) == 0)
-				{
-					*key = defGetString(def);
-					break;
-				}
-			}
-
-			/*
-			 * We can push down this qual if:
-			 * - The operatory is TEXTEQ
-			 * - The qual is on the _id column (in addition, _rev column can be also valid)
-			 */
-
-			if (op->opfuncid == PROCID_TEXTEQ)
-				*pushdown = true;
-
-			return;
-		}
-	}
-	return;
-}
-
-/*
  * Check if the provided option is one of the valid options.
  * context is the Oid of the catalog holding the object the option is for.
  */
@@ -1450,13 +1386,55 @@ static void odbcGetForeignRelSize(PlannerInfo *root, RelOptInfo *baserel, Oid fo
 {
 	unsigned int table_size   = 0;
 	odbcFdwOptions options;
+	OdbcFdwRelationInfo *fpinfo;
+	ListCell   *lc;
 
 	elog_debug("%s", __func__);
+
+	/*
+	 * We use OdbcFdwRelationInfo to pass various information to subsequent
+	 * functions.
+	 */
+	fpinfo = (OdbcFdwRelationInfo *) palloc0(sizeof(OdbcFdwRelationInfo));
+	baserel->fdw_private = (void *) fpinfo;
+
+	/* Base foreign tables need to be pushed down always. */
+	fpinfo->pushdown_safe = true;
+
+	/* Look up foreign-table catalog info. */
+	fpinfo->table = GetForeignTable(foreigntableid);
+	fpinfo->server = GetForeignServer(fpinfo->table->serverid);
 
 	/* Fetch the foreign table options */
 	odbcGetTableOptions(foreigntableid, &options);
 
-	odbcGetTableSize(&options, &table_size);
+	odbcGetTableInfo(&options, &table_size, &fpinfo->q_char, &fpinfo->name_qualifier_char);
+
+	/*
+	 * Identify which baserestrictinfo clauses can be sent to the remote
+	 * server and which can't.
+	 */
+	odbc_classify_conditions(root, baserel, baserel->baserestrictinfo,
+							&fpinfo->remote_conds, &fpinfo->local_conds);
+
+	/*
+	 * Identify which attributes will need to be retrieved from the remote
+	 * server.  These include all attrs needed for joins or final output, plus
+	 * all attrs used in the local_conds.  (Note: if we end up using a
+	 * parameterized scan, it's possible that some of the join clauses will be
+	 * sent to the remote and thus we wouldn't really need to retrieve the
+	 * columns used in them.  Doesn't seem worth detecting that case though.)
+	 */
+	fpinfo->attrs_used = NULL;
+	pull_varattnos((Node *) baserel->reltarget->exprs, baserel->relid,
+				   &fpinfo->attrs_used);
+	foreach(lc, fpinfo->local_conds)
+	{
+		RestrictInfo *rinfo = lfirst_node(RestrictInfo, lc);
+
+		pull_varattnos((Node *) rinfo->clause, baserel->relid,
+					   &fpinfo->attrs_used);
+	}
 
 	baserel->rows = table_size;
 	baserel->tuples = baserel->rows;
@@ -1472,7 +1450,7 @@ static void odbcEstimateCosts(PlannerInfo *root, RelOptInfo *baserel, Cost *star
 	/* Fetch the foreign table options */
 	odbcGetTableOptions(foreigntableid, &options);
 
-	odbcGetTableSize(&options, &table_size);
+	odbcGetTableInfo(&options, &table_size, NULL, NULL);
 
 	*startup_cost = 25;
 
@@ -1518,17 +1496,191 @@ static bool odbcAnalyzeForeignTable(Relation relation, AcquireSampleRowsFunc *fu
 static ForeignScan* odbcGetForeignPlan(PlannerInfo *root, RelOptInfo *baserel,
                                        Oid foreigntableid, ForeignPath *best_path, List *tlist, List *scan_clauses, Plan *outer_plan)
 {
-	Index scan_relid = baserel->relid;
-	elog_debug("----> starting %s", __func__);
+	OdbcFdwRelationInfo *fpinfo = (OdbcFdwRelationInfo *) baserel->fdw_private;
+	Index		scan_relid;
+	List	   *fdw_private;
+	List	   *remote_exprs = NIL;
+	List	   *local_exprs = NIL;
+	List	   *retrieved_attrs;
+	StringInfoData sql;
+	ListCell   *lc;
+	List	   *fdw_scan_tlist = NIL;
+	List	   *fdw_recheck_quals = NIL;
 
-	scan_clauses = extract_actual_clauses(scan_clauses, false);
+	if (IS_SIMPLE_REL(baserel))
+	{
+		/*
+		 * For base relations, set scan_relid as the relid of the relation.
+		 */
+		scan_relid = baserel->relid;
 
-	elog_debug("----> finishing %s", __func__);
+		/*
+		 * In a base-relation scan, we must apply the given scan_clauses.
+		 *
+		 * Separate the scan_clauses into those that can be executed remotely
+		 * and those that can't.  baserestrictinfo clauses that were
+		 * previously determined to be safe or unsafe by odbc_classify_conditions
+		 * are found in fpinfo->remote_conds and fpinfo->local_conds. Anything
+		 * else in the scan_clauses list will be a join clause, which we have
+		 * to check for remote-safety.
+		 *
+		 * Note: the join clauses we see here should be the exact same ones
+		 * previously examined by postgresGetForeignPaths.  Possibly it'd be
+		 * worth passing forward the classification work done then, rather
+		 * than repeating it here.
+		 *
+		 * This code must match "extract_actual_clauses(scan_clauses, false)"
+		 * except for the additional decision about remote versus local
+		 * execution.
+		 */
+		foreach(lc, scan_clauses)
+		{
+			RestrictInfo *rinfo = (RestrictInfo *) lfirst(lc);
 
-	return make_foreignscan(tlist, scan_clauses,
-	                        scan_relid, NIL, NIL,
-	                        NIL /* fdw_scan_tlist */, NIL, /* fdw_recheck_quals */
-	                        NULL /* outer_plan */ );
+
+			Assert(IsA(rinfo, RestrictInfo));
+
+			/*
+			 * Ignore any pseudoconstants, they're dealt with elsewhere
+			 */
+			if (rinfo->pseudoconstant)
+				continue;
+
+			if (list_member_ptr(fpinfo->remote_conds, rinfo))
+			{
+				remote_exprs = lappend(remote_exprs, rinfo->clause);
+			}
+			else if (list_member_ptr(fpinfo->local_conds, rinfo))
+				local_exprs = lappend(local_exprs, rinfo->clause);
+			else if (odbc_is_foreign_expr(root, baserel, rinfo->clause))
+			{
+				remote_exprs = lappend(remote_exprs, rinfo->clause);
+			}
+			else
+				local_exprs = lappend(local_exprs, rinfo->clause);
+		}
+
+		/*
+		 * For a base-relation scan, we have to support EPQ recheck, which
+		 * should recheck all the remote quals.
+		 */
+		fdw_recheck_quals = remote_exprs;
+	}
+	else
+	{
+		/*
+		 * Join relation or upper relation - set scan_relid to 0.
+		 */
+		scan_relid = 0;
+
+		/*
+		 * For a join rel, baserestrictinfo is NIL and we are not considering
+		 * parameterization right now, so there should be no scan_clauses for
+		 * a joinrel or an upper rel either.
+		 */
+		Assert(!scan_clauses);
+
+		/*
+		 * Instead we get the conditions to apply from the fdw_private
+		 * structure.
+		 */
+		remote_exprs = extract_actual_clauses(fpinfo->remote_conds, false);
+		local_exprs = extract_actual_clauses(fpinfo->local_conds, false);
+
+		/*
+		 * We leave fdw_recheck_quals empty in this case, since we never need
+		 * to apply EPQ recheck clauses.  In the case of a joinrel, EPQ
+		 * recheck is handled elsewhere --- see GetForeignJoinPaths(). If
+		 * we're planning an upperrel (ie, remote grouping or aggregation)
+		 * then there's no EPQ to do because SELECT FOR UPDATE wouldn't be
+		 * allowed, and indeed we *can't* put the remote clauses into
+		 * fdw_recheck_quals because the unaggregated Vars won't be available
+		 * locally.
+		 */
+
+		/*
+		 * Build the list of columns to be fetched from the foreign server.
+		 */
+
+		fdw_scan_tlist = odbc_build_tlist_to_deparse(baserel);
+
+		/*
+		 * Ensure that the outer plan produces a tuple whose descriptor
+		 * matches our scan tuple slot.  Also, remove the local conditions
+		 * from outer plan's quals, lest they be evaluated twice, once by the
+		 * local plan and once by the scan.
+		 */
+		if (outer_plan)
+		{
+			ListCell   *lc;
+
+			/*
+			 * Right now, we only consider grouping and aggregation beyond
+			 * joins. Queries involving aggregates or grouping do not require
+			 * EPQ mechanism, hence should not have an outer plan here.
+			 */
+			Assert(!IS_UPPER_REL(baserel));
+
+			/*
+			 * First, update the plan's qual list if possible. In some cases
+			 * the quals might be enforced below the topmost plan level, in
+			 * which case we'll fail to remove them; it's not worth working
+			 * harder than this.
+			 */
+			foreach(lc, local_exprs)
+			{
+				Node	   *qual = lfirst(lc);
+
+				outer_plan->qual = list_delete(outer_plan->qual, qual);
+
+				/*
+				 * For an inner join the local conditions of foreign scan plan
+				 * can be part of the joinquals as well.  (They might also be
+				 * in the mergequals or hashquals, but we can't touch those
+				 * without breaking the plan.)
+				 */
+				if (IsA(outer_plan, NestLoop) ||
+					IsA(outer_plan, MergeJoin) ||
+					IsA(outer_plan, HashJoin))
+				{
+					Join	   *join_plan = (Join *) outer_plan;
+
+					if (join_plan->jointype == JOIN_INNER)
+						join_plan->joinqual = list_delete(join_plan->joinqual,
+														  qual);
+				}
+			}
+
+			/*
+			 * Now fix the subplan's tlist --- this might result in inserting
+			 * a Result node atop the plan tree.
+			 */
+			outer_plan = change_plan_targetlist(outer_plan, fdw_scan_tlist,
+												best_path->path.parallel_safe);
+		}
+	}
+
+	/*
+	 * Build the query string to be sent for execution, and identify
+	 * expressions to be sent as parameters.
+	 */
+	initStringInfo(&sql);
+	odbc_deparse_select_stmt_for_rel(&sql, root, baserel, fdw_scan_tlist,
+							remote_exprs, best_path->path.pathkeys,
+							false, false, false,
+							&retrieved_attrs);
+
+	/*
+	 * Build the fdw_private list that will be available to the executor.
+	 * Items in the list must match order in enum FdwScanPrivateIndex.
+	 */
+	fdw_private = list_make2(makeString(sql.data), retrieved_attrs);
+
+	return make_foreignscan(tlist, local_exprs,
+							scan_relid, NIL, fdw_private,
+							fdw_scan_tlist,
+							fdw_recheck_quals,
+							outer_plan);
 }
 
 /*
@@ -1542,34 +1694,26 @@ odbcBeginForeignScan(ForeignScanState *node, int eflags)
 	SQLHDBC dbc;
 	odbcFdwScanState *festate;
 	odbcFdwOptions options;
-	Relation rel;
-	int num_of_columns;
-	StringInfoData *columns;
-	int i;
-	StringInfoData sql;
-	StringInfoData col_str;
-	StringInfoData name_qualifier_char;
-	StringInfoData quote_char;
-	char *qual_key         = NULL;
-	char *qual_value       = NULL;
-	bool pushdown          = false;
-	const char *schema_name;
 	int encoding = -1;
+	EState	   *estate = node->ss.ps.state;
+	ForeignScan *fsplan = (ForeignScan *) node->ss.ps.plan;
+	RangeTblEntry *rte;
+	int			rtindex;
+	TupleTableSlot *tupleSlot = node->ss.ss_ScanTupleSlot;
+	TupleDesc	tupleDescriptor = tupleSlot->tts_tupleDescriptor;
 
 	elog_debug("%s", __func__);
 
-	/* Fetch the foreign table options */
-	odbcGetTableOptions(RelationGetRelid(node->ss.ss_currentRelation), &options);
+	if (fsplan->scan.scanrelid > 0)
+		rtindex = fsplan->scan.scanrelid;
+	else
+		rtindex = bms_next_member(fsplan->fs_relids, -1);
+	rte = exec_rt_fetch(rtindex, estate);
 
-	schema_name = get_schema_name(&options);
+	/* Fetch the foreign table options */
+	odbcGetTableOptions(rte->relid, &options);
 
 	odbc_connection(&options, &env, &dbc);
-
-	/* Get quote char */
-	getQuoteChar(dbc, &quote_char);
-
-	/* Get name qualifier char */
-	getNameQualifierChar(dbc, &name_qualifier_char);
 
 	if (!is_blank_string(options.encoding))
 	{
@@ -1583,109 +1727,16 @@ odbcBeginForeignScan(ForeignScanState *node, int eflags)
 		}
 	}
 
-	/* Fetch the table column info */
-	rel = table_open(RelationGetRelid(node->ss.ss_currentRelation), AccessShareLock);
-	num_of_columns = rel->rd_att->natts;
-	columns = (StringInfoData *) palloc0(sizeof(StringInfoData) * num_of_columns);
-	initStringInfo(&col_str);
-	for (i = 0; i < num_of_columns; i++)
-	{
-		StringInfoData col;
-		StringInfoData mapping;
-		bool    mapped;
-		List* options = NULL;
-		ListCell* lc;
-
-		/* retrieve the column name */
-		initStringInfo(&col);
-		appendStringInfo(&col, "%s", NameStr(TupleDescAttr(rel->rd_att,i)->attname));
-		mapped = false;
-
-		elog(DEBUG1, "columns:%d/%d attname:%s", i, rel->rd_att->natts, rel->rd_att->attrs[i].attname.data);
-		options = GetForeignColumnOptions(rel->rd_att->attrs[i].attrelid, rel->rd_att->attrs[i].attnum);
-		foreach(lc, options){
-			DefElem    *def = (DefElem *) lfirst(lc);
-			elog(DEBUG1, "defname %s", def->defname);
-
-			if (strcmp(def->defname, "column") == 0)
-			{
-				initStringInfo(&mapping);
-				appendStringInfo(&mapping, "%s", defGetString(def));
-				mapped = true;
-				break;
-			}
-		}
-
-		/* decide which name is going to be used */
-		if (mapped)
-			columns[i] = mapping;
-		else
-			columns[i] = col;
-		appendStringInfo(&col_str, i == 0 ? "%s%s%s" : ",%s%s%s", (char *) quote_char.data, columns[i].data, (char *) quote_char.data);
-	}
-	table_close(rel, NoLock);
-
-	/* See if we've got a qual we can push down */
-	if (node->ss.ps.plan->qual)
-	{
-#if PG_VERSION_NUM >= 100000
-		ExprState  *state = node->ss.ps.qual;
-
-		odbcGetQual((Node *) state->expr, node->ss.ss_currentRelation->rd_att, NULL, &qual_key, &qual_value, &pushdown);
-#else
-		ListCell    *lc;
-
-		foreach (lc, node->ss.ps.qual)
-		{
-			/* Only the first qual can be pushed down to remote DBMS */
-			ExprState  *state = lfirst(lc);
-
-			odbcGetQual((Node *) state->expr, node->ss.ss_currentRelation->rd_att, options.mapping_list, &qual_key, &qual_value, &pushdown);
-			if (pushdown)
-				break;
-		}
-#endif
-	}
-
-	/* Construct the SQL statement used for remote querying */
-	initStringInfo(&sql);
-	if (!is_blank_string(options.sql_query))
-	{
-		/* Use custom query if it's available */
-		appendStringInfo(&sql, "%s", options.sql_query);
-	}
-	else
-	{
-		/* Get options.table */
-		if (is_blank_string(schema_name))
-		{
-			appendStringInfo(&sql, "SELECT %s FROM %s%s%s", col_str.data,
-			                 (char *) quote_char.data, options.table, (char *) quote_char.data);
-		}
-		else
-		{
-			appendStringInfo(&sql, "SELECT %s FROM %s%s%s%s%s%s%s", col_str.data,
-			                 (char *) quote_char.data, schema_name, (char *) quote_char.data,
-			                 (char *) name_qualifier_char.data,
-			                 (char *) quote_char.data, options.table, (char *) quote_char.data);
-		}
-		if (pushdown)
-		{
-			appendStringInfo(&sql, " WHERE %s%s%s = '%s'",
-			                 (char *) quote_char.data, qual_key, (char *) quote_char.data, qual_value);
-		}
-	}
-
 	festate = (odbcFdwScanState *) palloc0(sizeof(odbcFdwScanState));
-	festate->attinmeta = TupleDescGetAttInMetadata(node->ss.ss_currentRelation->rd_att);
+	festate->attinmeta = TupleDescGetAttInMetadata(tupleDescriptor);
 	copy_odbcFdwOptions(&(festate->options), &options);
 	festate->env = env;
 	festate->dbc = dbc;
-	festate->query = sql.data;
-	festate->query_executed = false;
-	festate->table_columns = columns;
-	festate->num_of_table_cols = num_of_columns;
+	festate->query =  strVal(list_nth(fsplan->fdw_private, FdwScanPrivateSelectSql));
+	festate->retrieved_attrs = (List *) list_nth(fsplan->fdw_private,
+												 FdwScanPrivateRetrievedAttrs);
 	/* prepare for the first iteration, there will be some precalculation needed in the first iteration */
+	festate->query_executed = false;
 	festate->first_iteration = true;
 	festate->encoding = encoding;
 	node->fdw_state = (void *) festate;
@@ -1693,317 +1744,367 @@ odbcBeginForeignScan(ForeignScanState *node, int eflags)
 
 /*
  * odbcIterateForeignScan
- *
+ *		Retrieve next row from the result set, or clear tuple slot to indicate
+ *		EOF.
  */
 static TupleTableSlot *
 odbcIterateForeignScan(ForeignScanState *node)
 {
-	EState *executor_state = node->ss.ps.state;
-	MemoryContext prev_context;
-	/* ODBC API return status */
-	SQLRETURN ret;
 	odbcFdwScanState *festate = (odbcFdwScanState *) node->fdw_state;
-	TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
-	SQLSMALLINT columns;
-	char    **values;
-	HeapTuple   tuple;
-	StringInfoData  col_data;
-	SQLHSTMT stmt;
-	bool first_iteration = festate->first_iteration;
-	int num_of_table_cols = festate->num_of_table_cols;
-	int num_of_result_cols;
-	StringInfoData  *table_columns = festate->table_columns;
-	List *col_position_mask = NIL;
-	List *col_size_array = NIL;
-	List *col_conversion_array = NIL;
+	TupleTableSlot *tupleSlot = node->ss.ss_ScanTupleSlot;
+	TupleDesc	tupleDescriptor = tupleSlot->tts_tupleDescriptor;
+	int			ret = 0;
+	SQLHSTMT	stmt;
 
-	elog_debug("%s", __func__);
+	elog(DEBUG1, "odbc_fdw : %s", __func__);
 
-	if (!festate->query_executed)
+	ExecClearTuple(tupleSlot);
+
+	PG_TRY();
 	{
-		/* Allocate a statement handle */
-		SQLAllocHandle(SQL_HANDLE_STMT, festate->dbc, &stmt);
-
-		elog_debug("Executing query: %s", festate->query);
-		/* Retrieve a list of rows */
-		ret = SQLExecDirect(stmt, (SQLCHAR *) festate->query, SQL_NTS);
-		check_return(ret, "Executing ODBC query", stmt, SQL_HANDLE_STMT);
-		festate->query_executed = true;
-		festate->stmt = stmt;
-	}
-	else
-		stmt = festate->stmt;
-
-	ret = SQLFetch(stmt);
-
-	SQLNumResultCols(stmt, &columns);
-
-	/*
-	 * If this is the first iteration,
-	 * we need to calculate the mask for column mapping as well as the column size
-	 */
-	if (first_iteration == true)
-	{
-		SQLCHAR *ColumnName;
-		SQLSMALLINT NameLengthPtr;
-		SQLSMALLINT DataTypePtr;
-		SQLULEN     ColumnSizePtr;
-		SQLSMALLINT DecimalDigitsPtr;
-		SQLSMALLINT NullablePtr;
-		int i;
-		int k;
-		bool found;
-
-		StringInfoData sql_type;
-
 		/*
-		 * Allocate memory for the masks in a memory context that
-		 * persists between IterateForeignScan calls
+		 * If this is the first call after Begin or ReScan, we need to
+		 * execute the query.
 		 */
-		prev_context = MemoryContextSwitchTo(executor_state->es_query_cxt);
-		col_position_mask = NIL;
-		col_size_array = NIL;
-		col_conversion_array = NIL;
-		num_of_result_cols = columns;
-		/* Obtain the column information of the first row. */
-		for (i = 1; i <= columns; i++)
+		if (!festate->query_executed)
 		{
-			ColumnConversion conversion = TEXT_CONVERSION;
-			found = false;
-			ColumnName = (SQLCHAR *) palloc0(sizeof(SQLCHAR) * MAXIMUM_COLUMN_NAME_LEN);
-			SQLDescribeCol(stmt,
-			               i,                       /* ColumnName */
-			               ColumnName,
-			               sizeof(SQLCHAR) * MAXIMUM_COLUMN_NAME_LEN, /* BufferLength */
-			               &NameLengthPtr,
-			               &DataTypePtr,
-			               &ColumnSizePtr,
-			               &DecimalDigitsPtr,
-			               &NullablePtr);
+			/* Allocate a statement handle */
+			SQLAllocHandle(SQL_HANDLE_STMT, festate->dbc, &stmt);
 
-			sql_data_type(DataTypePtr, ColumnSizePtr, DecimalDigitsPtr, NullablePtr, &sql_type);
-			if (strcmp("bytea", (char*)sql_type.data) == 0)
+			elog_debug("Executing query: %s", festate->query);
+			/* Retrieve a list of rows */
+			ret = SQLExecDirect(stmt, (SQLCHAR *) festate->query, SQL_NTS);
+			check_return(ret, "Executing ODBC query", stmt, SQL_HANDLE_STMT);
+			festate->query_executed = true;
+			festate->stmt = stmt;
+		}
+		else
+			stmt = festate->stmt;
+
+		ret = SQLFetch(stmt);
+
+		if (SQL_SUCCEEDED(ret))
+		{
+			/*
+			 * If this is the first iteration,
+			 * we need to calculate the column size as well as the column conversion
+			 */
+			if (festate->first_iteration == true)
 			{
-				conversion = BIN_CONVERSION;
-			}
-			if (strcmp("boolean", (char*)sql_type.data) == 0)
-			{
-				conversion = BOOL_CONVERSION;
-			}
-			else if (strncmp("bit(",(char*)sql_type.data,4)==0 || strncmp("varbit(",(char*)sql_type.data,7)==0)
-			{
-				conversion = BIN_CONVERSION;
+				odbc_get_column_info(stmt, node, festate);
+				festate->first_iteration = false;
 			}
 
-			/* Get the position of the column in the FDW table */
-			for (k=0; k<num_of_table_cols; k++)
+			odbc_make_tuple_from_result_row(festate->stmt, tupleDescriptor, festate->retrieved_attrs,
+											tupleSlot->tts_values, tupleSlot->tts_isnull, festate);
+			ExecStoreVirtualTuple(tupleSlot);
+		}
+	}
+	PG_CATCH();
+	{
+		/* Release resources related ODBC connections safely. */
+		if(festate->stmt)
+		{
+			ret = SQLFreeHandle(SQL_HANDLE_STMT, festate->stmt);
+			check_return(ret, "SQLFreeHandle",  festate->stmt, SQL_HANDLE_STMT);
+			festate->stmt = NULL;
+		}
+
+		if(festate->dbc)
+		{
+			ret = SQLDisconnect(festate->dbc);
+			check_return(ret, "SQLDisconnect", festate->dbc, SQL_HANDLE_DBC);
+			ret = SQLFreeHandle(SQL_HANDLE_DBC, festate->dbc);
+			check_return(ret, "SQLFreeHandle", festate->dbc, SQL_HANDLE_DBC);
+			festate->dbc = NULL;
+		}
+
+		if(festate->env)
+		{
+			ret = SQLFreeHandle(SQL_HANDLE_ENV, festate->env);
+			check_return(ret, "SQLFreeHandle", festate->env, SQL_HANDLE_ENV);
+			festate->env = NULL;
+		}
+		PG_RE_THROW();
+	}
+	PG_END_TRY();
+
+	return tupleSlot;
+}
+
+/*
+ * Get column describe from remote server:
+ *		- Column size
+ *		- Data type (column conversion)
+ */
+static void
+odbc_get_column_info(SQLHSTMT *stmt, ForeignScanState *node, odbcFdwScanState *festate)
+{
+	MemoryContext prev_context;
+	SQLCHAR *ColumnName;
+	SQLSMALLINT NameLengthPtr;
+	SQLSMALLINT DataTypePtr;
+	SQLULEN     ColumnSizePtr;
+	SQLSMALLINT DecimalDigitsPtr;
+	SQLSMALLINT NullablePtr;
+	SQLRETURN	ret;
+	SQLSMALLINT columns;
+	int			i;
+	StringInfoData sql_type;
+	List	   *col_size_array;
+	List	   *col_conversion_array;
+
+	/* Get number of column */
+	ret = SQLNumResultCols(stmt, &columns);
+	check_return(ret, "SQLNumResultCols()", stmt, SQL_HANDLE_STMT);
+
+	prev_context = MemoryContextSwitchTo(node->ss.ps.state->es_query_cxt);
+	col_size_array = NIL;
+	col_conversion_array = NIL;
+
+	/* Obtain the column information of the first row. */
+	for (i = 1; i <= columns; i++)
+	{
+		ColumnConversion conversion = TEXT_CONVERSION;
+		ColumnName = (SQLCHAR *) palloc0(sizeof(SQLCHAR) * MAXIMUM_COLUMN_NAME_LEN);
+
+		ret = SQLDescribeCol(stmt,
+							i,                       /* ColumnName */
+							ColumnName,
+							sizeof(SQLCHAR) * MAXIMUM_COLUMN_NAME_LEN, /* BufferLength */
+							&NameLengthPtr,
+							&DataTypePtr,
+							&ColumnSizePtr,
+							&DecimalDigitsPtr,
+							&NullablePtr);
+		check_return(ret, "SQLDescribeCol()", stmt, SQL_HANDLE_STMT);
+		col_size_array = lappend_int(col_size_array, (int) ColumnSizePtr);
+
+		/* get column conversion */
+		sql_data_type(DataTypePtr, ColumnSizePtr, DecimalDigitsPtr, NullablePtr, &sql_type);
+		if (strcmp("bytea", (char*)sql_type.data) == 0)
+		{
+			conversion = BIN_CONVERSION;
+		}
+		if (strcmp("boolean", (char*)sql_type.data) == 0)
+		{
+			conversion = BOOL_CONVERSION;
+		}
+		else if (strncmp("bit(",(char*)sql_type.data,4)==0 || strncmp("varbit(",(char*)sql_type.data,7)==0)
+		{
+			conversion = BIN_CONVERSION;
+		}
+		col_conversion_array = lappend_int(col_conversion_array, (int) conversion);
+
+		pfree(ColumnName);
+	}
+
+	festate->col_size_array = col_size_array;
+	festate->col_conversion_array = col_conversion_array;
+	MemoryContextSwitchTo(prev_context);
+}
+
+/*
+ * odbc_make_tuple_from_result_row:
+ * 		Create a tuple from the specified row of the ODBC resultset.
+ */
+static void
+odbc_make_tuple_from_result_row(SQLHSTMT * stmt,
+						 		TupleDesc tupleDescriptor,
+								List *retrieved_attrs,
+								Datum *row,
+								bool *is_null,
+								odbcFdwScanState * festate)
+{
+	ListCell   *lc = NULL;
+	int			attid = 0;
+	char	   *value;
+	SQLLEN		result_size;
+
+	memset(row, 0, sizeof(Datum) * tupleDescriptor->natts);
+	memset(is_null, true, sizeof(bool) * tupleDescriptor->natts);
+
+	foreach(lc, retrieved_attrs)
+	{
+		int			attnum = lfirst_int(lc) - 1;
+		Oid			pgtype = TupleDescAttr(tupleDescriptor, attnum)->atttypid;
+		int32		pgtypmod = TupleDescAttr(tupleDescriptor, attnum)->atttypmod;
+		ColumnConversion conversion = list_nth_int(festate->col_conversion_array, attid);
+
+		/* Get column value */
+		value = odbc_get_attr_value(festate, attid, pgtype, &result_size, conversion);
+		if (result_size != SQL_NULL_DATA)
+		{
+			is_null[attnum] = false;
+			row[attnum] = odbc_convert_to_pg(pgtype, pgtypmod, value, result_size, conversion);
+		}
+		attid++;
+	}
+}
+
+/*
+ * odbc_get_attr_value:
+ * 		Get attr value from remote server as a string value.
+ */
+static char*
+odbc_get_attr_value(odbcFdwScanState *festate, int attid, Oid pgtype, SQLLEN *result_size, ColumnConversion conversion)
+{
+	int			col_size = list_nth_int(festate->col_size_array, attid);
+	SQLHSTMT	stmt = festate->stmt;
+	SQLRETURN	ret = 0;
+	SQLSMALLINT	target_type = SQL_C_CHAR;
+	int			chunk_size, effective_chunk_size;
+	int			buffer_size = 0;
+	char	   *buffer = 0;
+	int			used_buffer_size = 0;
+	GetDataTruncation truncation;
+	bool		binary_data = false;
+
+	if (conversion == BIN_CONVERSION)
+	{
+		target_type	= SQL_C_BINARY;
+		binary_data = true;
+	}
+
+	if (col_size == 0)
+	{
+		col_size = 1024;
+	}
+
+	chunk_size = binary_data ? col_size : col_size + 1;
+
+	do // Loop for reading the field in chunks
+	{
+		resize_buffer(&buffer, &buffer_size, used_buffer_size, used_buffer_size + chunk_size);
+		ret = SQLGetData(stmt, attid + 1, target_type, buffer + used_buffer_size, chunk_size, result_size);
+		check_return(ret, "SQLGetData()", stmt, SQL_HANDLE_STMT);
+		effective_chunk_size = chunk_size;
+		if (!binary_data && buffer[used_buffer_size + chunk_size - 1] == 0)
+		{
+			effective_chunk_size--;
+		}
+		truncation = result_truncation(ret, stmt);
+		if (truncation == STRING_TRUNCATION)
+		{
+			if (*result_size == SQL_NO_TOTAL)
 			{
-				if (strcmp(table_columns[k].data, (char *) ColumnName) == 0)
+				// no info about remaining data size; keep reading with same chunk_size
+				used_buffer_size += effective_chunk_size;
+			}
+			else
+			{
+				// we read chunk_size, but there was result_size pending in total;
+				// adjust chunk_size for the remaining, so next wil hopely be the final chunk
+				used_buffer_size += effective_chunk_size;
+				// note that we need to read result_size - effective_chunk_size more data bytes,
+				chunk_size = (int)*result_size - effective_chunk_size;
+				// wait, maybe we don't need to read, just append a zero!
+				if (chunk_size == 0)
 				{
-					SQLULEN min_size = minimum_buffer_size(DataTypePtr);
-					SQLULEN max_size = MAXIMUM_BUFFER_SIZE;
-					found = true;
-					col_position_mask = lappend_int(col_position_mask, k);
-					if (ColumnSizePtr < min_size)
-						ColumnSizePtr = min_size;
-					if (ColumnSizePtr > max_size)
-						ColumnSizePtr = max_size;
-
-					col_size_array = lappend_int(col_size_array, (int) ColumnSizePtr);
-					col_conversion_array = lappend_int(col_conversion_array, (int) conversion);
+					if (!binary_data)
+					{
+						resize_buffer(&buffer, &buffer_size, used_buffer_size, used_buffer_size + 1);
+						buffer[used_buffer_size - 1] = 0;
+					}
 					break;
 				}
+				if (!binary_data)
+				{
+					chunk_size += 1;
+				}
 			}
-			/* if current column is not used by the foreign table */
-			if (!found)
-			{
-				col_position_mask = lappend_int(col_position_mask, -1);
-				col_size_array = lappend_int(col_size_array, -1);
-				col_conversion_array = lappend_int(col_conversion_array, 0);
-			}
-			pfree(ColumnName);
 		}
-		festate->num_of_result_cols = num_of_result_cols;
-		festate->col_position_mask = col_position_mask;
-		festate->col_size_array = col_size_array;
-		festate->col_conversion_array = col_conversion_array;
-		festate->first_iteration = false;
-
-		MemoryContextSwitchTo(prev_context);
-	}
-	else
-	{
-		num_of_result_cols = festate->num_of_result_cols;
-		col_position_mask = festate->col_position_mask;
-		col_size_array = festate->col_size_array;
-		col_conversion_array = festate->col_conversion_array;
-	}
-
-	/* Clear tuple to terminate Iteration loop when no more data can be fetched */
-	ExecClearTuple(slot);
-	if (SQL_SUCCEEDED(ret))
-	{
-		SQLSMALLINT i;
-		values = (char **) palloc0(sizeof(char *) * columns);
-
-		/* Loop through the columns */
-		for (i = 1; i <= columns; i++)
+		else if (truncation == FRACTIONAL_TRUNCATION)
 		{
-			int mask_index = i - 1;
-			int col_size = list_nth_int(col_size_array, mask_index);
-			int mapped_pos = list_nth_int(col_position_mask, mask_index);
-			ColumnConversion conversion = list_nth_int(col_conversion_array, mask_index);
-			SQLSMALLINT target_type = SQL_C_CHAR;
-			SQLLEN result_size;
-			int chunk_size, effective_chunk_size;
-			int buffer_size = 0;
-			char * buffer = 0;
-			char * hex;
-			int used_buffer_size = 0;
-			GetDataTruncation truncation;
-			bool binary_data = false;
-			if (conversion == BIN_CONVERSION)
+			/*
+			 * Fractional truncation has occurred;
+			 * at this point we cannot obtain the lost digits
+			 */
+			used_buffer_size += effective_chunk_size;
+			if (chunk_size == effective_chunk_size)
 			{
-				target_type	= SQL_C_BINARY;
-				binary_data = true;
+				/* The driver has omitted the trailing zero */
+				resize_buffer(&buffer, &buffer_size, used_buffer_size, used_buffer_size + 1);
+				buffer[used_buffer_size] = 0;
 			}
-
-			if (col_size == 0)
-			{
-				col_size = 1024;
-			}
-
-			chunk_size = binary_data ? col_size : col_size + 1;
-
-			/* Ignore this column if position is marked as invalid */
-			if (mapped_pos == -1)
-				continue;
-
-			do // Loop for reading the field in chunks
-			{
-				resize_buffer(&buffer, &buffer_size, used_buffer_size, used_buffer_size + chunk_size);
-				ret = SQLGetData(stmt, i, target_type, buffer + used_buffer_size, chunk_size, &result_size);
-				effective_chunk_size = chunk_size;
-				if (!binary_data && buffer[used_buffer_size + chunk_size - 1] == 0)
-				{
-					effective_chunk_size--;
-				}
-				truncation = result_truncation(ret, stmt);
-				if (truncation == STRING_TRUNCATION)
-				{
-					if (result_size == SQL_NO_TOTAL)
-					{
-						// no info about remaining data size; keep reading with same chunk_size
-						used_buffer_size += effective_chunk_size;
-					}
-					else
-					{
-						// we read chunk_size, but there was result_size pending in total;
-						// adjust chunk_size for the remaining, so next wil hopely be the final chunk
-						used_buffer_size += effective_chunk_size;
-						// note that we need to read result_size - effective_chunk_size more data bytes,
-						chunk_size = (int)result_size - effective_chunk_size;
-						// wait, maybe we don't need to read, just append a zero!
-						if (chunk_size == 0)
-						{
-							if (!binary_data)
-							{
-								resize_buffer(&buffer, &buffer_size, used_buffer_size, used_buffer_size + 1);
-								buffer[used_buffer_size - 1] = 0;
-							}
-							break;
-						}
-						if (!binary_data)
-						{
-							chunk_size += 1;
-						}
-					}
-				}
-				else if (truncation == FRACTIONAL_TRUNCATION)
-				{
-					/* Fractional truncation has occurred;
-					* at this point we cannot obtain the lost digits
-					*/
-					used_buffer_size += effective_chunk_size;
-					if (chunk_size == effective_chunk_size)
-					{
-						/* The driver has omitted the trailing zero */
-						resize_buffer(&buffer, &buffer_size, used_buffer_size, used_buffer_size + 1);
-						buffer[used_buffer_size] = 0;
-					}
-					elog_debug("Truncating number: %s", buffer);
-				}
-				else // NO_TRUNCATION: finish reading
-				{
-					used_buffer_size += result_size;
-				}
-			} while (truncation == STRING_TRUNCATION && chunk_size > 0);
-
-			if (!binary_data)
-			{
-				used_buffer_size = strnlen(buffer, used_buffer_size);
-			}
-
-			if (ret != SQL_SUCCESS_WITH_INFO)
-			{
-				// TODO: review check_result behaviour for SQL_SUCCESS_WITH_INFO (it should not fail right?)
-				check_return(ret, "Reading data", stmt, SQL_HANDLE_STMT);
-			}
-
-			if (SQL_SUCCEEDED(ret))
-			{
-				/* Handle null columns */
-				if (result_size == SQL_NULL_DATA)
-				{
-					// BuildTupleFromCStrings expects NULLs to be NULL pointers
-					values[mapped_pos] = NULL;
-				}
-				else
-				{
-					if (festate->encoding != -1 && !binary_data)
-					{
-						/* Convert character encoding */
-						buffer = pg_any_to_server(buffer, used_buffer_size, festate->encoding);
-					}
-					initStringInfo(&col_data);
-					switch (conversion)
-					{
-					case TEXT_CONVERSION :
-						appendStringInfoString (&col_data, buffer);
-						break;
-					case BOOL_CONVERSION :
-						if (buffer[0] == 0)
-							strcpy(buffer, "F");
-						else if (buffer[0] == 1)
-							strcpy(buffer, "T");
-						appendStringInfoString (&col_data, buffer);
-						break;
-					case BIN_CONVERSION :
-						/* TODO: avoid hex conversion by building the tuple from Datum values instead of using BuildTupleFromCStrings */
-						hex = binary_to_hex(buffer, used_buffer_size);
-						appendStringInfoString (&col_data, "\\x");
-						appendStringInfoString (&col_data, hex);
-						pfree(hex);
-						break;
-					}
-
-					values[mapped_pos] = col_data.data;
-				}
-			}
-			pfree(buffer);
+			elog_debug("Truncating number: %s", buffer);
 		}
+		else // NO_TRUNCATION: finish reading
+		{
+			used_buffer_size += *result_size;
+		}
+	} while (truncation == STRING_TRUNCATION && chunk_size > 0);
 
-		tuple = BuildTupleFromCStrings(festate->attinmeta, values);
-		if (tuple)
-#if PG_VERSION_NUM < 120000
-			ExecStoreTuple(tuple, slot, InvalidBuffer, false);
-#else
-			ExecStoreHeapTuple(tuple, slot, false);
-#endif
-		pfree(values);
+	if (!binary_data)
+	{
+		used_buffer_size = strnlen(buffer, used_buffer_size);
 	}
 
-	return slot;
+	if (ret != SQL_SUCCESS_WITH_INFO)
+	{
+		// TODO: review check_result behaviour for SQL_SUCCESS_WITH_INFO (it should not fail right?)
+		check_return(ret, "Reading data", stmt, SQL_HANDLE_STMT);
+	}
+	if (festate->encoding != -1 && !binary_data)
+	{
+		/* Convert character encoding */
+		buffer = pg_any_to_server(buffer, used_buffer_size, festate->encoding);
+	}
+
+	return buffer;
+}
+
+/*
+ * odbc_convert_to_pg:
+ * 		Convert ODBC data into PostgreSQL's compatible data types
+ */
+static Datum
+odbc_convert_to_pg(Oid pgtyp, int pgtypmod, char* value, int size, ColumnConversion conversion)
+{
+	Datum		value_datum = 0;
+	Datum		valueDatum = 0;
+	regproc		typeinput;
+	HeapTuple	tuple;
+	char	   *hex;
+
+	/* get the type's output function */
+	tuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(pgtyp));
+	if (!HeapTupleIsValid(tuple))
+		elog(ERROR, "cache lookup failed for type%u", pgtyp);
+
+	typeinput = ((Form_pg_type) GETSTRUCT(tuple))->typinput;
+	ReleaseSysCache(tuple);
+
+	switch (conversion)
+	{
+		case BOOL_CONVERSION:
+		{
+			if (value[0] == 0)
+				strcpy(value, "F");
+			else if (value[0] == 1)
+				strcpy(value, "T");
+			valueDatum = PointerGetDatum(value);
+			break;
+		}
+		case BIN_CONVERSION:
+		{
+			hex = binary_to_hex(value, size);
+			valueDatum = (Datum) palloc0(strlen(hex) + VARHDRSZ);
+			memcpy(VARDATA(valueDatum), hex, strlen(hex));
+			SET_VARSIZE(valueDatum, strlen(hex) + VARHDRSZ);
+			break;
+		}
+		default:
+			/* TEXT_CONVERSION */
+			valueDatum = CStringGetDatum((char *) value);
+			break;
+	}
+
+	value_datum = OidFunctionCall3(typeinput, valueDatum,
+								   ObjectIdGetDatum(pgtyp),
+								   Int32GetDatum(pgtypmod));
+
+	return value_datum;
 }
 
 /*
@@ -2018,7 +2119,7 @@ odbcExplainForeignScan(ForeignScanState *node, ExplainState *es)
 
 	elog_debug("%s", __func__);
 
-	odbcGetTableSize(&(festate->options), &table_size);
+	odbcGetTableInfo(&(festate->options), &table_size, NULL, NULL);
 
 	/* Suppress file size if we're not showing cost details */
 	if (es->costs)
@@ -2771,9 +2872,14 @@ deparseInsertSql(StringInfo buf, RangeTblEntry *rte,
 	AttrNumber	pindex;
 	bool		first;
 	ListCell   *lc;
+	deparse_expr_cxt deparse_cxt;
+
+	deparse_cxt.buf = buf;
+	deparse_cxt.name_qualifier_char = name_qualifier_char;
+	deparse_cxt.q_char = quote_char;
 
 	appendStringInfoString(buf, "INSERT INTO ");
-	deparseRelation(buf, rel, name_qualifier_char, quote_char);
+	odbc_deparse_relation(buf, rel, name_qualifier_char, quote_char);
 
 	if (targetAttrs)
 	{
@@ -2788,7 +2894,7 @@ deparseInsertSql(StringInfo buf, RangeTblEntry *rte,
 				appendStringInfoString(buf, ", ");
 			first = false;
 
-			deparseColumnRef(buf, rtindex, attnum, rte, false, quote_char);
+			odbc_deparse_column_ref(buf, rtindex, attnum, rte, false, &deparse_cxt);
 		}
 
 		appendStringInfoString(buf, ") VALUES (");
@@ -2832,9 +2938,14 @@ deparseUpdateSql(StringInfo buf, RangeTblEntry *rte,
 {
 	bool		first;
 	ListCell   *lc;
+	deparse_expr_cxt deparse_cxt;
+
+	deparse_cxt.buf = buf;
+	deparse_cxt.name_qualifier_char = name_qualifier_char;
+	deparse_cxt.q_char = quote_char;
 
 	appendStringInfoString(buf, "UPDATE ");
-	deparseRelation(buf, rel, name_qualifier_char, quote_char);
+	odbc_deparse_relation(buf, rel, name_qualifier_char, quote_char);
 	appendStringInfoString(buf, " SET ");
 
 	first = true;
@@ -2846,7 +2957,7 @@ deparseUpdateSql(StringInfo buf, RangeTblEntry *rte,
 			appendStringInfoString(buf, ", ");
 		first = false;
 
-		deparseColumnRef(buf, rtindex, attnum, rte, false, quote_char);
+		odbc_deparse_column_ref(buf, rtindex, attnum, rte, false, &deparse_cxt);
 		appendStringInfo(buf, " = ?");
 	}
 
@@ -2864,7 +2975,7 @@ deparseUpdateSql(StringInfo buf, RangeTblEntry *rte,
 				appendStringInfoString(buf, " AND ");
 			first = false;
 
-			deparseColumnRef(buf, rtindex, attnum, rte, false, quote_char);
+			odbc_deparse_column_ref(buf, rtindex, attnum, rte, false, &deparse_cxt);
 			appendStringInfoString(buf, " = ?");
 		}
 	}
@@ -2886,9 +2997,14 @@ deparseDeleteSql(StringInfo buf, RangeTblEntry *rte,
 {
 	bool		first;
 	ListCell   *lc;
+	deparse_expr_cxt deparse_cxt;
+
+	deparse_cxt.buf = buf;
+	deparse_cxt.name_qualifier_char = name_qualifier_char;
+	deparse_cxt.q_char = quote_char;
 
 	appendStringInfoString(buf, "DELETE FROM ");
-	deparseRelation(buf, rel, name_qualifier_char, quote_char);
+	odbc_deparse_relation(buf, rel, name_qualifier_char, quote_char);
 
 	// NULLでなければ、でいいのか? NULLでなく要素が0のパターンは?
 	if (attname)
@@ -2904,125 +3020,9 @@ deparseDeleteSql(StringInfo buf, RangeTblEntry *rte,
 				appendStringInfoString(buf, " AND ");
 			first = false;
 
-			deparseColumnRef(buf, rtindex, attnum, rte, false, quote_char);
+			odbc_deparse_column_ref(buf, rtindex, attnum, rte, false, &deparse_cxt);
 			appendStringInfoString(buf, " = ?");
 		}
-	}
-}
-
-/*
- * Construct name to use for given column, and emit it into buf.
- * If it has a column_name FDW option, use that instead of attribute name.
- *
- * If qualify_col is true, qualify column name with the alias of relation.
- */
-static void
-deparseColumnRef(StringInfo buf, int varno, int varattno, RangeTblEntry *rte,
-				 bool qualify_col, char *quote_char)
-{
-	/* We not support fetching the remote side's CTID and OID. */
-	if (varattno == SelfItemPointerAttributeNumber)
-	{
-		elog(ERROR, "not support CTID/OID");
-	}
-	else if (varattno < 0)
-	{
-		elog(ERROR, "not support system attributes");
-	}
-	else if (varattno == 0)
-	{
-		elog(ERROR, "not support row reference");
-	}
-	else
-	{
-		char	   *colname = NULL;
-		List	   *options;
-		ListCell   *lc;
-
-		/* varno must not be any of OUTER_VAR, INNER_VAR and INDEX_VAR. */
-		Assert(!IS_SPECIAL_VARNO(varno));
-
-		/*
-		 * If it's a column of a foreign table, and it has the column_name FDW
-		 * option, use that value.
-		 */
-		options = GetForeignColumnOptions(rte->relid, varattno);
-		foreach(lc, options)
-		{
-			DefElem    *def = (DefElem *) lfirst(lc);
-
-			if (strcmp(def->defname, "column") == 0)
-			{
-				colname = defGetString(def);
-				break;
-			}
-		}
-
-		/*
-		 * If it's a column of a regular table or it doesn't have column_name
-		 * FDW option, use attribute name.
-		 */
-		if (colname == NULL)
-			colname = get_attname(rte->relid, varattno, false);
-
-		if (qualify_col)
-			ADD_REL_QUALIFIER(buf, varno);
-
-		appendStringInfo(buf, "%s%s%s", quote_char, colname, quote_char);
-
-
-	}
-}
-
-/*
- * Append remote name of specified foreign table to buf.
- * Use value of table_name FDW option (if any) instead of relation's name.
- * Similarly, schema_name FDW option overrides schema name.
- */
-static void
-deparseRelation(StringInfo buf, Relation rel, char *name_qualifier_char, char *quote_char)
-{
-	ForeignTable *table;
-	const char *nspname = NULL;
-	const char *relname = NULL;
-	ListCell   *lc;
-
-	/* obtain additional catalog information. */
-	table = GetForeignTable(RelationGetRelid(rel));
-
-	/*
-	 * Use value of FDW options if any, instead of the name of object itself.
-	 */
-	foreach(lc, table->options)
-	{
-		DefElem    *def = (DefElem *) lfirst(lc);
-
-		if (strcmp(def->defname, "schema") == 0)
-			nspname = defGetString(def);
-		else if (strcmp(def->defname, "table") == 0)
-			relname = defGetString(def);
-	}
-
-	/*
-	 * Note: we could skip printing the schema name if it's pg_catalog, but
-	 * that doesn't seem worth the trouble.
-	 */
-	if (nspname == NULL)
-		nspname = get_namespace_name(RelationGetNamespace(rel));
-	if (relname == NULL)
-		relname = RelationGetRelationName(rel);
-
-	if (is_blank_string(nspname))
-	{
-		appendStringInfo(buf, "%s%s%s",
-						quote_char, relname, quote_char);
-	}
-	else
-	{
-		appendStringInfo(buf, "%s%s%s%s%s%s%s",
-						quote_char, nspname, quote_char,
-						name_qualifier_char,
-						quote_char, relname, quote_char);
 	}
 }
 
@@ -3181,7 +3181,7 @@ odbcEndForeignModify(EState *estate,
 	/* If fmstate is NULL, we are in EXPLAIN; nothing to do */
 	if (fmstate == NULL)
 		return;
-	
+
 	/* Destroy the execution state */
 	finish_foreign_modify(fmstate);
 }
@@ -3228,7 +3228,7 @@ odbcExecForeignInsert(EState *estate,
 		PG_RE_THROW();
 	}
 	PG_END_TRY();
-	
+
 	return rslot;
 }
 
@@ -3322,7 +3322,7 @@ bind_stmt_params(odbcFdwModifyState *fmstate,
 		int			nestlevel;
 		ListCell   *lc;
 
-		nestlevel = set_transmission_modes();
+		nestlevel = odbc_set_transmission_modes();
 
 		foreach(lc, fmstate->target_attrs)
 		{
@@ -3349,7 +3349,7 @@ bind_stmt_params(odbcFdwModifyState *fmstate,
 			pindex++;
 		}
 
-		reset_transmission_modes(nestlevel);
+		odbc_reset_transmission_modes(nestlevel);
 	}
 
 	Assert(pindex == fmstate->p_nums);
@@ -3647,14 +3647,14 @@ bindJunkColumnValue(odbcFdwModifyState *fmstate, TupleTableSlot *slot, TupleTabl
  * user-visible computations.
  *
  * We use the equivalent of a function SET option to allow the settings to
- * persist only until the caller calls reset_transmission_modes().  If an
+ * persist only until the caller calls odbc_reset_transmission_modes().  If an
  * error is thrown in between, guc.c will take care of undoing the settings.
  *
  * The return value is the nestlevel that must be passed to
- * reset_transmission_modes() to undo things.
+ * odbc_reset_transmission_modes() to undo things.
  */
-static int
-set_transmission_modes(void)
+int
+odbc_set_transmission_modes(void)
 {
 	int			nestlevel = NewGUCNestLevel();
 
@@ -3679,10 +3679,10 @@ set_transmission_modes(void)
 }
 
 /*
- * Undo the effects of set_transmission_modes().
+ * Undo the effects of odbc_set_transmission_modes().
  */
-static void
-reset_transmission_modes(int nestlevel)
+void
+odbc_reset_transmission_modes(int nestlevel)
 {
 	AtEOXact_GUC(true, nestlevel);
 }
@@ -3985,4 +3985,330 @@ validate_retrieved_string(SQLHSTMT stmt, SQLUSMALLINT ColumnNumber, const char *
 	}
 	pfree(result);
 	return ret;
+}
+
+/*
+ * Assess whether the aggregation, grouping and having operations can be
+ * pushed down to the foreign server.  As a side effect, save information we
+ * obtain in this function to OdbcFdwRelationInfo of the input relation.
+ */
+static bool
+odbc_foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel, Node *havingQual)
+{
+	Query	   *query = root->parse;
+	OdbcFdwRelationInfo *fpinfo = (OdbcFdwRelationInfo *) grouped_rel->fdw_private;
+	PathTarget *grouping_target;
+	OdbcFdwRelationInfo *ofpinfo;
+	ListCell   *lc;
+	int			i;
+	List	   *tlist = NIL;
+
+	/* We currently don't support pushing Grouping Sets. */
+	if (query->groupingSets)
+		return false;
+
+	/* Get the fpinfo of the underlying scan relation. */
+	ofpinfo = (OdbcFdwRelationInfo *) fpinfo->outerrel->fdw_private;
+
+	/*
+	 * If underlying scan relation has any local conditions, those conditions
+	 * are required to be applied before performing aggregation.  Hence the
+	 * aggregate cannot be pushed down.
+	 */
+	if (ofpinfo->local_conds)
+		return false;
+
+	/*
+	 * The targetlist expected from this node and the targetlist pushed down
+	 * to the foreign server may be different. The latter requires
+	 * sortgrouprefs to be set to push down GROUP BY clause, but should not
+	 * have those arising from ORDER BY clause. These sortgrouprefs may be
+	 * different from those in the plan's targetlist. Use a copy of path
+	 * target to record the new sortgrouprefs.
+	 */
+	grouping_target = grouped_rel->reltarget;
+
+	/*
+	 * Examine grouping expressions, as well as other expressions we'd need to
+	 * compute, and check whether they are safe to push down to the foreign
+	 * server.  All GROUP BY expressions will be part of the grouping target
+	 * and thus there is no need to search for them separately.  Add grouping
+	 * expressions into target list which will be passed to foreign server.
+	 *
+	 * A tricky fine point is that we must not put any expression into the
+	 * target list that is just a foreign param (that is, something that
+	 * deparse.c would conclude has to be sent to the foreign server).  If we
+	 * do, the expression will also appear in the fdw_exprs list of the plan
+	 * node, and setrefs.c will get confused and decide that the fdw_exprs
+	 * entry is actually a reference to the fdw_scan_tlist entry, resulting in
+	 * a broken plan.  Somewhat oddly, it's OK if the expression contains such
+	 * a node, as long as it's not at top level; then no match is possible.
+	 */
+	i = 0;
+
+	foreach(lc, grouping_target->exprs)
+	{
+		Expr	   *expr = (Expr *) lfirst(lc);
+		ListCell   *l;
+
+		/*
+		 * Non-grouping expression we need to compute.  Can we ship it as-is
+		 * to the foreign server?
+		 */
+		if (odbc_is_foreign_expr(root, grouped_rel, expr))
+		{
+			/*
+			 * Yes, so add to tlist as-is; OK to suppress duplicates
+			 */
+			tlist = add_to_flat_tlist(tlist, list_make1(expr));
+		}
+		else
+		{
+			/*
+			 * Not pushable as a whole; extract its Vars and aggregates
+			 */
+			List	   *aggvars;
+
+			aggvars = pull_var_clause((Node *) expr,
+									  PVC_INCLUDE_AGGREGATES);
+
+			/*
+			 * If any aggregate expression is not shippable, then we cannot
+			 * push down aggregation to the foreign server.  (We don't have to
+			 * check is_foreign_param, since that certainly won't return true
+			 * for any such expression.)
+			 */
+			if (!odbc_is_foreign_expr(root, grouped_rel, (Expr *) aggvars))
+				return false;
+
+			/*
+			 * Add aggregates, if any, into the targetlist. Plain Vars outside
+			 * an aggregate can be ignored, because they should be either same
+			 * as some GROUP BY column or part of some GROUP BY expression. In
+			 * either case, they are already part of the targetlist and thus
+			 * no need to add them again.  In fact including plain Vars in the
+			 * tlist when they do not match a GROUP BY column would cause the
+			 * foreign server to complain that the shipped query is invalid.
+			 */
+			foreach(l, aggvars)
+			{
+				Expr	   *expr = (Expr *) lfirst(l);
+
+				if (IsA(expr, Aggref))
+					tlist = add_to_flat_tlist(tlist, list_make1(expr));
+			}
+		}
+
+		i++;
+	}
+
+	/*
+	 * Classify the pushable and non-pushable HAVING clauses and save them in
+	 * remote_conds and local_conds of the grouped rel's fpinfo.
+	 */
+	if (havingQual)
+	{
+		ListCell   *lc;
+
+		foreach(lc, (List *) havingQual)
+		{
+			Expr	   *expr = (Expr *) lfirst(lc);
+			RestrictInfo *rinfo;
+
+			/*
+			 * Currently, the core code doesn't wrap havingQuals in
+			 * RestrictInfos, so we must make our own.
+			 */
+			Assert(!IsA(expr, RestrictInfo));
+			rinfo = make_restrictinfo(root,
+									  expr,
+									  true,
+									  false,
+									  false,
+									  root->qual_security_level,
+									  grouped_rel->relids,
+									  NULL,
+									  NULL);
+			/*
+			 * Currently, ODBC_fdw does not support push down HAVING clause,
+			 * so, add all havingQuals to local_conds
+			 */
+			fpinfo->local_conds = lappend(fpinfo->local_conds, rinfo);
+		}
+	}
+
+	/*
+	 * If there are any local conditions, pull Vars and aggregates from it and
+	 * check whether they are safe to pushdown or not.
+	 */
+	if (fpinfo->local_conds)
+	{
+		List	   *aggvars = NIL;
+		ListCell   *lc;
+
+		foreach(lc, fpinfo->local_conds)
+		{
+			RestrictInfo *rinfo = lfirst_node(RestrictInfo, lc);
+
+			aggvars = list_concat(aggvars,
+								  pull_var_clause((Node *) rinfo->clause,
+												  PVC_INCLUDE_AGGREGATES));
+		}
+
+		foreach(lc, aggvars)
+		{
+			Expr	   *expr = (Expr *) lfirst(lc);
+
+			/*
+			 * If aggregates within local conditions are not safe to push
+			 * down, then we cannot push down the query. Vars are already part
+			 * of GROUP BY clause which are checked above, so no need to
+			 * access them again here.  Again, we need not check
+			 * is_foreign_param for a foreign aggregate.
+			 */
+			if (IsA(expr, Aggref))
+			{
+				if (!odbc_is_foreign_expr(root, grouped_rel, expr))
+					return false;
+
+				tlist = add_to_flat_tlist(tlist, list_make1(expr));
+			}
+		}
+	}
+
+	/* Store generated targetlist */
+	fpinfo->grouped_tlist = tlist;
+
+	/* Safe to pushdown */
+	fpinfo->pushdown_safe = true;
+
+	return true;
+}
+
+/*
+ * odbcGetForeignUpperPaths
+ *		Add paths for post-join operations like aggregation, grouping etc. if
+ *		corresponding operations are safe to push down.
+ */
+static void
+odbcGetForeignUpperPaths(PlannerInfo *root, UpperRelationKind stage,
+						  RelOptInfo *input_rel, RelOptInfo *output_rel,
+						  void *extra)
+{
+	OdbcFdwRelationInfo *fpinfo;
+
+	/*
+	 * If input rel is not safe to pushdown, then simply return as we cannot
+	 * perform any post-join operations on the foreign server.
+	 */
+	if (!input_rel->fdw_private ||
+		!((OdbcFdwRelationInfo *) input_rel->fdw_private)->pushdown_safe)
+		return;
+
+	/* Ignore stages we don't support; and skip any duplicate calls. */
+	if (stage != UPPERREL_GROUP_AGG ||
+		output_rel->fdw_private)
+		return;
+
+	fpinfo = (OdbcFdwRelationInfo *) palloc0(sizeof(OdbcFdwRelationInfo));
+	fpinfo->pushdown_safe = false;
+	output_rel->fdw_private = fpinfo;
+
+	switch (stage)
+	{
+		case UPPERREL_GROUP_AGG:
+			odbc_add_foreign_grouping_paths(root, input_rel, output_rel,
+									   (GroupPathExtraData *) extra);
+			break;
+		default:
+			elog(ERROR, "unexpected upper relation: %d", (int) stage);
+			break;
+	}
+}
+
+/*
+ * odbc_add_foreign_grouping_paths Add foreign path for grouping and/or
+ * aggregation.
+ *
+ * Given input_rel represents the underlying scan.  The paths are added to
+ * the given grouped_rel.
+ */
+static void
+odbc_add_foreign_grouping_paths(PlannerInfo *root, RelOptInfo *input_rel,
+								RelOptInfo *grouped_rel, GroupPathExtraData *extra)
+{
+	Query	   *parse = root->parse;
+	OdbcFdwRelationInfo *ifpinfo = input_rel->fdw_private;
+	OdbcFdwRelationInfo *fpinfo = grouped_rel->fdw_private;
+	ForeignPath *grouppath;
+	double		rows;
+	int			width;
+	Cost		startup_cost;
+	Cost		total_cost;
+
+	/*
+	 * Nothing to be done, if there is no aggregation required. Odbc_fdw does not
+	 * support GROUP BY, GROUPING SET so also return when there are those clauses.
+	 */
+	if (parse->groupClause ||
+		parse->groupingSets ||
+		!parse->hasAggs)
+		return;
+
+#if (PG_VERSION_NUM >= 110000)
+	Assert(extra->patype == PARTITIONWISE_AGGREGATE_NONE ||
+		   extra->patype == PARTITIONWISE_AGGREGATE_FULL);
+#endif
+
+	/* save the input_rel as outerrel in fpinfo */
+	fpinfo->outerrel = input_rel;
+
+	/*
+	 * Copy foreign table, foreign server, user mapping, FDW options etc.
+	 * details from the input relation's fpinfo.
+	 */
+	fpinfo->table = ifpinfo->table;
+	fpinfo->server = ifpinfo->server;
+	fpinfo->user = ifpinfo->user;
+	fpinfo->q_char = ifpinfo->q_char;
+	fpinfo->name_qualifier_char = ifpinfo->name_qualifier_char;
+
+	/*
+	 * Assess if it is safe to push down aggregation and grouping.
+	 *
+	 * Use HAVING qual from extra. In case of child partition, it will have
+	 * translated Vars.
+	 */
+	if (!odbc_foreign_grouping_ok(root, grouped_rel, extra->havingQual))
+		return;
+
+	/* Use small cost to push down aggregate always */
+	rows = width = startup_cost = total_cost = 1;
+
+	/* Create and add foreign path to the grouping relation. */
+#if (PG_VERSION_NUM >= 120000)
+	grouppath = create_foreign_upper_path(root,
+										  grouped_rel,
+										  grouped_rel->reltarget,
+										  rows,
+										  startup_cost,
+										  total_cost,
+										  NIL,	/* no pathkeys */
+										  NULL,
+										  NIL); /* no fdw_private */
+#else
+	grouppath = create_foreignscan_path(root,
+										grouped_rel,
+										root->upper_targets[UPPERREL_GROUP_AGG],
+										rows,
+										startup_cost,
+										total_cost,
+										NIL,	/* no pathkeys */
+										NULL,	/* no required_outer */
+										NULL,
+										NIL);	/* no fdw_private */
+#endif
+
+	/* Add generated path into grouped_rel by add_path(). */
+	add_path(grouped_rel, (Path *) grouppath);
 }

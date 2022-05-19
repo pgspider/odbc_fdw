@@ -141,8 +141,12 @@ DELETE FROM FLOAT4_TBL;
 INSERT INTO FLOAT4_TBL(f1) VALUES ('nan'::numeric);
 --Testcase 60:
 SELECT (f1::float4) AS float4 FROM FLOAT4_TBL;
---
 
+-- The comparison of floating-point values for equality is not safe
+-- because of the rounding errors when converting between binary and decimal.
+-- A floating-point value as written in an SQL statement may not be
+-- the same as the value represented internally.
+-- E.g: binary value of 1004.3 may be 1004.2999999999999
 --Testcase 61:
 ALTER FOREIGN TABLE FLOAT4_TBL OPTIONS (SET table 'float4_tbl');
 --Testcase 62:

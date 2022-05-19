@@ -1301,7 +1301,6 @@ SELECT date_part('epoch', d1) FROM TIMESTAMP_TMP;
 psql:sql/14.0/timestamp.sql:487: ERROR:  date/time field value out of range: "0000-00-00 00:00:00"
 --Testcase 145:
 DELETE FROM TIMESTAMP_TMP;
-psql:sql/14.0/timestamp.sql:490: ERROR:  date/time field value out of range: "0000-00-00 00:00:00"
 --Testcase 146:
 INSERT INTO TIMESTAMP_TMP(d1) VALUES ('294270-01-01 00:00:00'::timestamp);
 --Testcase 147:
@@ -1310,12 +1309,15 @@ psql:sql/14.0/timestamp.sql:494: ERROR:  date/time field value out of range: "00
 -- another internal overflow test case
 --Testcase 148:
 DELETE FROM TIMESTAMP_TMP;
-psql:sql/14.0/timestamp.sql:498: ERROR:  date/time field value out of range: "0000-00-00 00:00:00"
 --Testcase 149:
 INSERT INTO TIMESTAMP_TMP(d1) VALUES ('5000-01-01 00:00:00'::timestamp);
 --Testcase 150:
 SELECT extract(epoch from d1) FROM TIMESTAMP_TMP;
-psql:sql/14.0/timestamp.sql:502: ERROR:  date/time field value out of range: "0000-00-00 00:00:00"
+      extract       
+--------------------
+ 95617584000.000000
+(1 row)
+
 -- TO_CHAR()
 --Testcase 151:
 SELECT to_char(d1, 'DAY Day day DY Dy dy MONTH Month month RM MON Mon mon')

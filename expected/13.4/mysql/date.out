@@ -176,7 +176,7 @@ SELECT f1 as "date",
  Foreign Scan on public.date_tbl  (cost=25.00..41.05 rows=15 width=116)
    Output: f1, date_part('year'::text, (f1)::timestamp without time zone), date_part('month'::text, (f1)::timestamp without time zone), date_part('day'::text, (f1)::timestamp without time zone), date_part('quarter'::text, (f1)::timestamp without time zone), date_part('decade'::text, (f1)::timestamp without time zone), date_part('century'::text, (f1)::timestamp without time zone), date_part('millennium'::text, (f1)::timestamp without time zone), date_part('isoyear'::text, (f1)::timestamp without time zone), date_part('week'::text, (f1)::timestamp without time zone), date_part('dow'::text, (f1)::timestamp without time zone), date_part('isodow'::text, (f1)::timestamp without time zone), date_part('doy'::text, (f1)::timestamp without time zone), date_part('julian'::text, (f1)::timestamp without time zone), date_part('epoch'::text, (f1)::timestamp without time zone)
    Foreign Table Size: 15 b
-   Remote SQL: SELECT `f1`,`id` FROM `odbc_fdw_regress`.`date_tbl`
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.date_tbl
 (4 rows)
 
 --Testcase 29:

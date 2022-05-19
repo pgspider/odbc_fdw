@@ -35,6 +35,61 @@ make
 sudo make install
 ```
 
+Feature
+-------
+#### Write-able FDW
+The existing odbc FDWs are only read-only, this version provides the write capability.  
+The user can now issue an insert, update, and delete statement for the foreign tables using the odbc_fdw. 
+
+#### WHERE clause push-down
+The odbc_fdw will push-down the foreign table where clause to the foreign server.  
+The where condition on the foreign table will be executed on the foreign server,   
+hence there will be fewer rows to bring across to PostgreSQL.  
+This is a performance feature.
+
+#### Column push-down
+The existing odbc FDWs are fetching all the columns from the target foreign table.  
+The latest version does the column push-down and only brings back the columns   
+that are part of the select target list.  
+This is a performance feature.
+
+#### Aggregate function push-down
+List of aggregate functions push-down:
+```
+  avg, bit_and, bit_or, count, max, min, stddev_pop, stddev_samp, sum, var_pop, var_samp,
+  sum(DISTINCT), avg(DISTINCT), max(DISTINCT), min(DISTINCT), count(DISTINCT)
+```
+
+#### Function push-down
+The function can be push-down in WHERE clauses.
+List of builtin functions of PostgreSQL can be pushed-down:
+ - Flow Control Functions:
+   ```
+   nullif
+   ```
+ - Numeric functions:
+   ```
+   abs, acos, asin, atan, atan2, ceil, ceiling, cos, cot, degrees, div, exp, floor, ln, log, log10, mod,   
+   pow, power, radians, round, sign, sin, sqrt, tan,
+   ```
+ - String functions:
+   ```
+   ascii, bit_length, char_length, character_length, concat, concat_ws, left, length, lower, lpad,   
+   octet_length, repeat, replace, reverse, right, rpad, position, regexp_replace, substr, substring,   
+   upper,
+   ```
+   - For `bit_length`: postgre's core will optimize `bit_length(str)` to `octet_length(str) * 8` and push it down to remote server.
+ - Date and Time functions
+   ```
+   date
+   ```
+ - Explicit cast functions:   
+   | Postgres explicit cast  |      ODBC coressponding syntax      |
+   |----------|:-------------|
+   |col::float4|CAST(col AS real)|
+   |col::date|CAST(col AS date)|
+   |col::time|CAST(col AS time)|
+
 Usage
 -----
 
@@ -201,33 +256,68 @@ LIMITATIONS
   PostgreSQL ([NAMEDATALEN](https://www.postgresql.org/docs/9.5/static/sql-syntax-lexical.html#SQL-SYNTAX-IDENTIFIERS))
 * Only the following column types are currently fully suported:
 
-type             | select | insert/update/delete
------------------|--------|-------
-SQL_CHAR         | x      | -
-SQL_WCHAR        | x      | -
-SQL_VARCHAR      | x      | x
-SQL_WVARCHAR     | x      | -
-SQL_LONGVARCHAR  | x      | -
-SQL_WLONGVARCHAR | x      | -
-SQL_DECIMAL      | x      | -
-SQL_NUMERIC      | x      | x
-SQL_INTEGER      | x      | x
-SQL_REAL         | x      | -
-SQL_FLOAT        | x      | -
-SQL_DOUBLE       | x      | x
-SQL_SMALLINT     | x      | x
-SQL_TINYINT      | x      | -
-SQL_BIGINT       | x      | x
-SQL_DATE         | x      | x
-SQL_TYPE_TIME    | x      | -
-SQL_TIME         | x      | x
-SQL_TIMESTAMP    | x      | x
-SQL_GUID         | x      | -
+   type             | select | insert/update/delete
+   -----------------|--------|-------
+   SQL_CHAR         | x      | -
+   SQL_WCHAR        | x      | -
+   SQL_VARCHAR      | x      | x
+   SQL_WVARCHAR     | x      | -
+   SQL_LONGVARCHAR  | x      | -
+   SQL_WLONGVARCHAR | x      | -
+   SQL_DECIMAL      | x      | -
+   SQL_NUMERIC      | x      | x
+   SQL_INTEGER      | x      | x
+   SQL_REAL         | x      | -
+   SQL_FLOAT        | x      | -
+   SQL_DOUBLE       | x      | x
+   SQL_SMALLINT     | x      | x
+   SQL_TINYINT      | x      | -
+   SQL_BIGINT       | x      | x
+   SQL_DATE         | x      | x
+   SQL_TYPE_TIME    | x      | -
+   SQL_TIME         | x      | x
+   SQL_TIMESTAMP    | x      | x
+   SQL_GUID         | x      | -
 
 * Foreign encodings are supported with the  `encoding` option
   for any enconding supported by PostgreSQL and compatible with the
   local database. The encoding must be identified with the
   name used by [PostgreSQL](https://www.postgresql.org/docs/9.5/static/multibyte.html).
 
+* Concatenation Operator
+The `||` operator as a concatenation operator is standard SQL, however in MySQL, it represents the OR operator (logical operator)
+If the PIPES_AS_CONCAT SQL mode is enabled, || signifies the SQL-standard string concatenation operator (like CONCAT()).
+User needs to enable PIPES_AS_CONCAT mode in MySQL for concatenation.
+
+* Floating-point value comparison
+Floating-point numbers are approximate and not stored as exact values. A floating-point value as written in an SQL statement may not be the same as the value represented internally.
+
+   For example:
+
+   ```
+   SELECT float4.f1 FROM FLOAT4_TBL tbl06 WHERE float4.f1 <> '1004.3';
+        f1      
+   -------------
+              0
+         1004.3
+         -34.84
+    1.23457e+20
+    1.23457e-20
+   (5 rows)
+   ```
+   In order to get correct result, can decide on an acceptable tolerance for differences between the numbers and then do the comparison against the tolerance value to that can get the correct result.
+   ```
+   SELECT float4.f1 FROM tbl06 float4 WHERE float4.f1 <> '1004.3' GROUP BY float4.id, float4.f1 HAVING abs(f1 - 1004.3) > 0.001 ORDER BY float4.id;
+        f1      
+   -------------
+              0
+         -34.84
+    1.23457e+20
+    1.23457e-20
+   (4 rows)
+   ```
+ * Functions push-down:
+   * For `log`: Just push down `log(b, x)`, the `log(x)` does not push-down to remote server because of different functionality in the remote side (Mysql ODBC datasource)
+   * For `regexp_replace`: Just push-down `regexp_replace(source, pattern, eplacement_string)`, does not push-down the other signature of `regexp_replace` (these signatures is not support by Mysql ODBC datasource)
 
 [1]:https://github.com/CartoDB/odbc_fdw

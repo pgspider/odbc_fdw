@@ -60,17 +60,16 @@ EXPLAIN VERBOSE
 SELECT * FROM onek
    WHERE onek.unique1 < 10
    ORDER BY onek.unique1;
-                                                                                               QUERY PLAN                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort  (cost=1074.83..1077.33 rows=1000 width=244)
    Output: unique1, unique2, two, four, ten, twenty, hundred, thousand, twothousand, fivethous, tenthous, odd, even, stringu1, stringu2, string4
    Sort Key: onek.unique1
    ->  Foreign Scan on public.onek  (cost=25.00..1025.00 rows=1000 width=244)
          Output: unique1, unique2, two, four, ten, twenty, hundred, thousand, twothousand, fivethous, tenthous, odd, even, stringu1, stringu2, string4
-         Filter: (onek.unique1 < 10)
          Foreign Table Size: 1000 b
-         Remote SQL: SELECT "unique1","unique2","two","four","ten","twenty","hundred","thousand","twothousand","fivethous","tenthous","odd","even","stringu1","stringu2","string4" FROM "public"."onek"
-(8 rows)
+         Remote SQL: SELECT unique1, unique2, two, four, ten, twenty, hundred, thousand, twothousand, fivethous, tenthous, odd, even, stringu1, stringu2, string4 FROM public.onek WHERE ((unique1 < 10))
+(7 rows)
 
 --Testcase 8:
 SELECT * FROM onek
@@ -98,17 +97,16 @@ EXPLAIN VERBOSE
 SELECT onek.unique1, onek.stringu1 FROM onek
    WHERE onek.unique1 < 20
    ORDER BY unique1 using >;
-                                                                                               QUERY PLAN                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                      QUERY PLAN                                      
+--------------------------------------------------------------------------------------
  Sort  (cost=1074.83..1077.33 rows=1000 width=68)
    Output: unique1, stringu1
    Sort Key: onek.unique1 DESC
    ->  Foreign Scan on public.onek  (cost=25.00..1025.00 rows=1000 width=68)
          Output: unique1, stringu1
-         Filter: (onek.unique1 < 20)
          Foreign Table Size: 1000 b
-         Remote SQL: SELECT "unique1","unique2","two","four","ten","twenty","hundred","thousand","twothousand","fivethous","tenthous","odd","even","stringu1","stringu2","string4" FROM "public"."onek"
-(8 rows)
+         Remote SQL: SELECT unique1, stringu1 FROM public.onek WHERE ((unique1 < 20))
+(7 rows)
 
 --Testcase 10:
 SELECT onek.unique1, onek.stringu1 FROM onek
@@ -146,17 +144,16 @@ EXPLAIN VERBOSE
 SELECT onek.unique1, onek.stringu1 FROM onek
    WHERE onek.unique1 > 980
    ORDER BY stringu1 using <;
-                                                                                               QUERY PLAN                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                      QUERY PLAN                                       
+---------------------------------------------------------------------------------------
  Sort  (cost=1074.83..1077.33 rows=1000 width=68)
    Output: unique1, stringu1
    Sort Key: onek.stringu1
    ->  Foreign Scan on public.onek  (cost=25.00..1025.00 rows=1000 width=68)
          Output: unique1, stringu1
-         Filter: (onek.unique1 > 980)
          Foreign Table Size: 1000 b
-         Remote SQL: SELECT "unique1","unique2","two","four","ten","twenty","hundred","thousand","twothousand","fivethous","tenthous","odd","even","stringu1","stringu2","string4" FROM "public"."onek"
-(8 rows)
+         Remote SQL: SELECT unique1, stringu1 FROM public.onek WHERE ((unique1 > 980))
+(7 rows)
 
 SELECT onek.unique1, onek.stringu1 FROM onek
    WHERE onek.unique1 > 980
@@ -193,17 +190,16 @@ EXPLAIN VERBOSE
 SELECT onek.unique1, onek.string4 FROM onek
    WHERE onek.unique1 > 980
    ORDER BY string4 using <, unique1 using >;
-                                                                                               QUERY PLAN                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                      QUERY PLAN                                      
+--------------------------------------------------------------------------------------
  Sort  (cost=1074.83..1077.33 rows=1000 width=68)
    Output: unique1, string4
    Sort Key: onek.string4, onek.unique1 DESC
    ->  Foreign Scan on public.onek  (cost=25.00..1025.00 rows=1000 width=68)
          Output: unique1, string4
-         Filter: (onek.unique1 > 980)
          Foreign Table Size: 1000 b
-         Remote SQL: SELECT "unique1","unique2","two","four","ten","twenty","hundred","thousand","twothousand","fivethous","tenthous","odd","even","stringu1","stringu2","string4" FROM "public"."onek"
-(8 rows)
+         Remote SQL: SELECT unique1, string4 FROM public.onek WHERE ((unique1 > 980))
+(7 rows)
 
 --Testcase 13:
 SELECT onek.unique1, onek.string4 FROM onek
@@ -241,17 +237,16 @@ EXPLAIN VERBOSE
 SELECT onek.unique1, onek.string4 FROM onek
    WHERE onek.unique1 > 980
    ORDER BY string4 using >, unique1 using <;
-                                                                                               QUERY PLAN                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                      QUERY PLAN                                      
+--------------------------------------------------------------------------------------
  Sort  (cost=1074.83..1077.33 rows=1000 width=68)
    Output: unique1, string4
    Sort Key: onek.string4 DESC, onek.unique1
    ->  Foreign Scan on public.onek  (cost=25.00..1025.00 rows=1000 width=68)
          Output: unique1, string4
-         Filter: (onek.unique1 > 980)
          Foreign Table Size: 1000 b
-         Remote SQL: SELECT "unique1","unique2","two","four","ten","twenty","hundred","thousand","twothousand","fivethous","tenthous","odd","even","stringu1","stringu2","string4" FROM "public"."onek"
-(8 rows)
+         Remote SQL: SELECT unique1, string4 FROM public.onek WHERE ((unique1 > 980))
+(7 rows)
 
 --Testcase 15:
 SELECT onek.unique1, onek.string4 FROM onek
@@ -289,17 +284,16 @@ EXPLAIN VERBOSE
 SELECT onek.unique1, onek.string4 FROM onek
    WHERE onek.unique1 < 20
    ORDER BY unique1 using >, string4 using <;
-                                                                                               QUERY PLAN                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                     QUERY PLAN                                      
+-------------------------------------------------------------------------------------
  Sort  (cost=1074.83..1077.33 rows=1000 width=68)
    Output: unique1, string4
    Sort Key: onek.unique1 DESC, onek.string4
    ->  Foreign Scan on public.onek  (cost=25.00..1025.00 rows=1000 width=68)
          Output: unique1, string4
-         Filter: (onek.unique1 < 20)
          Foreign Table Size: 1000 b
-         Remote SQL: SELECT "unique1","unique2","two","four","ten","twenty","hundred","thousand","twothousand","fivethous","tenthous","odd","even","stringu1","stringu2","string4" FROM "public"."onek"
-(8 rows)
+         Remote SQL: SELECT unique1, string4 FROM public.onek WHERE ((unique1 < 20))
+(7 rows)
 
 --Testcase 17:
 SELECT onek.unique1, onek.string4 FROM onek
@@ -338,17 +332,16 @@ EXPLAIN VERBOSE
 SELECT onek.unique1, onek.string4 FROM onek
    WHERE onek.unique1 < 20
    ORDER BY unique1 using <, string4 using >;
-                                                                                               QUERY PLAN                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                     QUERY PLAN                                      
+-------------------------------------------------------------------------------------
  Sort  (cost=1074.83..1077.33 rows=1000 width=68)
    Output: unique1, string4
    Sort Key: onek.unique1, onek.string4 DESC
    ->  Foreign Scan on public.onek  (cost=25.00..1025.00 rows=1000 width=68)
          Output: unique1, string4
-         Filter: (onek.unique1 < 20)
          Foreign Table Size: 1000 b
-         Remote SQL: SELECT "unique1","unique2","two","four","ten","twenty","hundred","thousand","twothousand","fivethous","tenthous","odd","even","stringu1","stringu2","string4" FROM "public"."onek"
-(8 rows)
+         Remote SQL: SELECT unique1, string4 FROM public.onek WHERE ((unique1 < 20))
+(7 rows)
 
 --Testcase 19:
 SELECT onek.unique1, onek.string4 FROM onek
@@ -398,17 +391,16 @@ SET enable_sort TO off;
 --Testcase 23:
 EXPLAIN VERBOSE
 SELECT onek2.* FROM onek2 WHERE onek2.unique1 < 10 ORDER BY onek2.unique1; -- add ORDER BY to stablize test result
-                                                                                               QUERY PLAN                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort  (cost=10000001074.83..10000001077.33 rows=1000 width=244)
    Output: unique1, unique2, two, four, ten, twenty, hundred, thousand, twothousand, fivethous, tenthous, odd, even, stringu1, stringu2, string4
    Sort Key: onek2.unique1
    ->  Foreign Scan on public.onek2  (cost=25.00..1025.00 rows=1000 width=244)
          Output: unique1, unique2, two, four, ten, twenty, hundred, thousand, twothousand, fivethous, tenthous, odd, even, stringu1, stringu2, string4
-         Filter: (onek2.unique1 < 10)
          Foreign Table Size: 1000 b
-         Remote SQL: SELECT "unique1","unique2","two","four","ten","twenty","hundred","thousand","twothousand","fivethous","tenthous","odd","even","stringu1","stringu2","string4" FROM "public"."onek"
-(8 rows)
+         Remote SQL: SELECT unique1, unique2, two, four, ten, twenty, hundred, thousand, twothousand, fivethous, tenthous, odd, even, stringu1, stringu2, string4 FROM public.onek WHERE ((unique1 < 10))
+(7 rows)
 
 --Testcase 24:
 SELECT onek2.* FROM onek2 WHERE onek2.unique1 < 10 ORDER BY onek2.unique1; -- add ORDER BY to stablize test result
@@ -434,17 +426,16 @@ EXPLAIN VERBOSE
 SELECT onek2.unique1, onek2.stringu1 FROM onek2
     WHERE onek2.unique1 < 20
     ORDER BY unique1 using >;
-                                                                                               QUERY PLAN                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                      QUERY PLAN                                      
+--------------------------------------------------------------------------------------
  Sort  (cost=10000001074.83..10000001077.33 rows=1000 width=68)
    Output: unique1, stringu1
    Sort Key: onek2.unique1 DESC
    ->  Foreign Scan on public.onek2  (cost=25.00..1025.00 rows=1000 width=68)
          Output: unique1, stringu1
-         Filter: (onek2.unique1 < 20)
          Foreign Table Size: 1000 b
-         Remote SQL: SELECT "unique1","unique2","two","four","ten","twenty","hundred","thousand","twothousand","fivethous","tenthous","odd","even","stringu1","stringu2","string4" FROM "public"."onek"
-(8 rows)
+         Remote SQL: SELECT unique1, stringu1 FROM public.onek WHERE ((unique1 < 20))
+(7 rows)
 
 --Testcase 26:
 SELECT onek2.unique1, onek2.stringu1 FROM onek2
@@ -481,17 +472,16 @@ SELECT onek2.unique1, onek2.stringu1 FROM onek2
 EXPLAIN VERBOSE
 SELECT onek2.unique1, onek2.stringu1 FROM onek2
    WHERE onek2.unique1 > 980 ORDER BY onek2.unique1;
-                                                                                               QUERY PLAN                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                      QUERY PLAN                                       
+---------------------------------------------------------------------------------------
  Sort  (cost=10000001074.83..10000001077.33 rows=1000 width=68)
    Output: unique1, stringu1
    Sort Key: onek2.unique1
    ->  Foreign Scan on public.onek2  (cost=25.00..1025.00 rows=1000 width=68)
          Output: unique1, stringu1
-         Filter: (onek2.unique1 > 980)
          Foreign Table Size: 1000 b
-         Remote SQL: SELECT "unique1","unique2","two","four","ten","twenty","hundred","thousand","twothousand","fivethous","tenthous","odd","even","stringu1","stringu2","string4" FROM "public"."onek"
-(8 rows)
+         Remote SQL: SELECT unique1, stringu1 FROM public.onek WHERE ((unique1 > 980))
+(7 rows)
 
 --Testcase 28:
 SELECT onek2.unique1, onek2.stringu1 FROM onek2
@@ -530,12 +520,12 @@ EXPLAIN VERBOSE
 SELECT two, stringu1, ten, string4
    INTO TABLE tmp
    FROM onek;
-                                                                                            QUERY PLAN                                                                                            
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                               QUERY PLAN                               
+------------------------------------------------------------------------
  Foreign Scan on public.onek  (cost=25.00..1025.00 rows=1000 width=136)
    Output: two, stringu1, ten, string4
    Foreign Table Size: 1000 b
-   Remote SQL: SELECT "unique1","unique2","two","four","ten","twenty","hundred","thousand","twothousand","fivethous","tenthous","odd","even","stringu1","stringu2","string4" FROM "public"."onek"
+   Remote SQL: SELECT two, ten, stringu1, string4 FROM public.onek
 (4 rows)
 
 --Testcase 33:
@@ -557,7 +547,7 @@ select * from onek, (values(147, 'RFAAAA'), (931, 'VJAAAA')) as v (i, j)
    ->  Foreign Scan on public.onek  (cost=25.00..1025.00 rows=1000 width=244)
          Output: onek.unique1, onek.unique2, onek.two, onek.four, onek.ten, onek.twenty, onek.hundred, onek.thousand, onek.twothousand, onek.fivethous, onek.tenthous, onek.odd, onek.even, onek.stringu1, onek.stringu2, onek.string4
          Foreign Table Size: 1000 b
-         Remote SQL: SELECT "unique1","unique2","two","four","ten","twenty","hundred","thousand","twothousand","fivethous","tenthous","odd","even","stringu1","stringu2","string4" FROM "public"."onek"
+         Remote SQL: SELECT unique1, unique2, two, four, ten, twenty, hundred, thousand, twothousand, fivethous, tenthous, odd, even, stringu1, stringu2, string4 FROM public.onek
    ->  Hash  (cost=0.03..0.03 rows=2 width=36)
          Output: "*VALUES*".column1, "*VALUES*".column2
          ->  Values Scan on "*VALUES*"  (cost=0.00..0.03 rows=2 width=36)
@@ -588,7 +578,7 @@ select * from onek,
    Output: onek.unique1, onek.unique2, onek.two, onek.four, onek.ten, onek.twenty, onek.hundred, onek.thousand, onek.twothousand, onek.fivethous, onek.tenthous, onek.odd, onek.even, onek.stringu1, onek.stringu2, onek.string4, $1
    Filter: (onek.unique1 = $3)
    Foreign Table Size: 1000 b
-   Remote SQL: SELECT "unique1","unique2","two","four","ten","twenty","hundred","thousand","twothousand","fivethous","tenthous","odd","even","stringu1","stringu2","string4" FROM "public"."onek"
+   Remote SQL: SELECT unique1, unique2, two, four, ten, twenty, hundred, thousand, twothousand, fivethous, tenthous, odd, even, stringu1, stringu2, string4 FROM public.onek
    InitPlan 2 (returns $1)
      ->  Limit  (cost=0.12..0.12 rows=1 width=4)
            Output: "*VALUES*".column1
@@ -641,7 +631,7 @@ select * from onek
          ->  Foreign Scan on public.onek  (cost=25.00..1025.00 rows=1000 width=244)
                Output: onek.unique1, onek.unique2, onek.two, onek.four, onek.ten, onek.twenty, onek.hundred, onek.thousand, onek.twothousand, onek.fivethous, onek.tenthous, onek.odd, onek.even, onek.stringu1, onek.stringu2, onek.string4
                Foreign Table Size: 1000 b
-               Remote SQL: SELECT "unique1","unique2","two","four","ten","twenty","hundred","thousand","twothousand","fivethous","tenthous","odd","even","stringu1","stringu2","string4" FROM "public"."onek"
+               Remote SQL: SELECT unique1, unique2, two, four, ten, twenty, hundred, thousand, twothousand, fivethous, tenthous, odd, even, stringu1, stringu2, string4 FROM public.onek
          ->  Hash  (cost=0.05..0.05 rows=4 width=8)
                Output: "*VALUES*".column1, "*VALUES*".column2
                ->  Values Scan on "*VALUES*"  (cost=0.00..0.05 rows=4 width=8)
@@ -684,7 +674,7 @@ SELECT q1, q2 FROM int8_tbl;
          ->  Foreign Scan on public.int8_tbl  (cost=25.00..30.00 rows=5 width=16)
                Output: int8_tbl.q1, int8_tbl.q2
                Foreign Table Size: 5 b
-               Remote SQL: SELECT "q1","q2" FROM "public"."int8_tbl"
+               Remote SQL: SELECT q1, q2 FROM public.int8_tbl
 (16 rows)
 
 --Testcase 41:
@@ -722,7 +712,7 @@ SELECT * FROM foo ORDER BY f1;
    ->  Foreign Scan on public.foo  (cost=25.00..32.00 rows=7 width=8)
          Output: id, f1
          Foreign Table Size: 7 b
-         Remote SQL: SELECT "id","f1" FROM "public"."foo"
+         Remote SQL: SELECT id, f1 FROM public.foo
 (7 rows)
 
 --Testcase 44:
@@ -749,7 +739,7 @@ SELECT * FROM foo ORDER BY f1 ASC;	-- same thing
    ->  Foreign Scan on public.foo  (cost=25.00..32.00 rows=7 width=8)
          Output: id, f1
          Foreign Table Size: 7 b
-         Remote SQL: SELECT "id","f1" FROM "public"."foo"
+         Remote SQL: SELECT id, f1 FROM public.foo
 (7 rows)
 
 --Testcase 46:
@@ -776,7 +766,7 @@ SELECT * FROM foo ORDER BY f1 NULLS FIRST;
    ->  Foreign Scan on public.foo  (cost=25.00..32.00 rows=7 width=8)
          Output: id, f1
          Foreign Table Size: 7 b
-         Remote SQL: SELECT "id","f1" FROM "public"."foo"
+         Remote SQL: SELECT id, f1 FROM public.foo
 (7 rows)
 
 --Testcase 48:
@@ -803,7 +793,7 @@ SELECT * FROM foo ORDER BY f1 DESC;
    ->  Foreign Scan on public.foo  (cost=25.00..32.00 rows=7 width=8)
          Output: id, f1
          Foreign Table Size: 7 b
-         Remote SQL: SELECT "id","f1" FROM "public"."foo"
+         Remote SQL: SELECT id, f1 FROM public.foo
 (7 rows)
 
 --Testcase 50:
@@ -830,7 +820,7 @@ SELECT * FROM foo ORDER BY f1 DESC NULLS LAST;
    ->  Foreign Scan on public.foo  (cost=25.00..32.00 rows=7 width=8)
          Output: id, f1
          Foreign Table Size: 7 b
-         Remote SQL: SELECT "id","f1" FROM "public"."foo"
+         Remote SQL: SELECT id, f1 FROM public.foo
 (7 rows)
 
 --Testcase 52:
@@ -853,10 +843,10 @@ SELECT * FROM foo ORDER BY f1 DESC NULLS LAST;
 --Testcase 53:
 explain (costs off)
 select * from onek2 where unique2 = 11 and stringu1 = 'ATAAAA';
-                         QUERY PLAN                         
-------------------------------------------------------------
+              QUERY PLAN               
+---------------------------------------
  Foreign Scan on onek2
-   Filter: ((unique2 = 11) AND (stringu1 = 'ATAAAA'::name))
+   Filter: (stringu1 = 'ATAAAA'::name)
 (2 rows)
 
 --Testcase 54:
@@ -870,20 +860,19 @@ select * from onek2 where unique2 = 11 and stringu1 = 'ATAAAA';
 --Testcase 55:
 explain (costs off, analyze on, timing off, summary off)
 select * from onek2 where unique2 = 11 and stringu1 = 'ATAAAA';
-                         QUERY PLAN                         
-------------------------------------------------------------
+                  QUERY PLAN                   
+-----------------------------------------------
  Foreign Scan on onek2 (actual rows=1 loops=1)
-   Filter: ((unique2 = 11) AND (stringu1 = 'ATAAAA'::name))
-   Rows Removed by Filter: 999
-(3 rows)
+   Filter: (stringu1 = 'ATAAAA'::name)
+(2 rows)
 
 --Testcase 56:
 explain (costs off)
 select unique2 from onek2 where unique2 = 11 and stringu1 = 'ATAAAA';
-                         QUERY PLAN                         
-------------------------------------------------------------
+              QUERY PLAN               
+---------------------------------------
  Foreign Scan on onek2
-   Filter: ((unique2 = 11) AND (stringu1 = 'ATAAAA'::name))
+   Filter: (stringu1 = 'ATAAAA'::name)
 (2 rows)
 
 --Testcase 57:
@@ -897,10 +886,10 @@ select unique2 from onek2 where unique2 = 11 and stringu1 = 'ATAAAA';
 --Testcase 58:
 explain (costs off)
 select * from onek2 where unique2 = 11 and stringu1 < 'B';
-                      QUERY PLAN                       
--------------------------------------------------------
+            QUERY PLAN            
+----------------------------------
  Foreign Scan on onek2
-   Filter: ((stringu1 < 'B'::name) AND (unique2 = 11))
+   Filter: (stringu1 < 'B'::name)
 (2 rows)
 
 --Testcase 59:
@@ -913,10 +902,10 @@ select * from onek2 where unique2 = 11 and stringu1 < 'B';
 --Testcase 60:
 explain (costs off)
 select unique2 from onek2 where unique2 = 11 and stringu1 < 'B';
-                      QUERY PLAN                       
--------------------------------------------------------
+            QUERY PLAN            
+----------------------------------
  Foreign Scan on onek2
-   Filter: ((stringu1 < 'B'::name) AND (unique2 = 11))
+   Filter: (stringu1 < 'B'::name)
 (2 rows)
 
 --Testcase 61:
@@ -930,11 +919,11 @@ select unique2 from onek2 where unique2 = 11 and stringu1 < 'B';
 --Testcase 62:
 explain (costs off)
 select unique2 from onek2 where unique2 = 11 and stringu1 < 'B' for update;
-                         QUERY PLAN                          
--------------------------------------------------------------
+               QUERY PLAN               
+----------------------------------------
  LockRows
    ->  Foreign Scan on onek2
-         Filter: ((stringu1 < 'B'::name) AND (unique2 = 11))
+         Filter: (stringu1 < 'B'::name)
 (3 rows)
 
 --Testcase 63:
@@ -948,10 +937,10 @@ select unique2 from onek2 where unique2 = 11 and stringu1 < 'B' for update;
 --Testcase 64:
 explain (costs off)
 select unique2 from onek2 where unique2 = 11 and stringu1 < 'C';
-                      QUERY PLAN                       
--------------------------------------------------------
+            QUERY PLAN            
+----------------------------------
  Foreign Scan on onek2
-   Filter: ((stringu1 < 'C'::name) AND (unique2 = 11))
+   Filter: (stringu1 < 'C'::name)
 (2 rows)
 
 --Testcase 65:
@@ -967,10 +956,10 @@ SET enable_indexscan TO off;
 --Testcase 67:
 explain (costs off)
 select unique2 from onek2 where unique2 = 11 and stringu1 < 'B';
-                      QUERY PLAN                       
--------------------------------------------------------
+            QUERY PLAN            
+----------------------------------
  Foreign Scan on onek2
-   Filter: ((stringu1 < 'B'::name) AND (unique2 = 11))
+   Filter: (stringu1 < 'B'::name)
 (2 rows)
 
 --Testcase 68:
@@ -987,10 +976,10 @@ RESET enable_indexscan;
 explain (costs off)
 select unique1, unique2 from onek2
   where (unique2 = 11 or unique1 = 0) and stringu1 < 'B';
-                                QUERY PLAN                                
---------------------------------------------------------------------------
+            QUERY PLAN            
+----------------------------------
  Foreign Scan on onek2
-   Filter: ((stringu1 < 'B'::name) AND ((unique2 = 11) OR (unique1 = 0)))
+   Filter: (stringu1 < 'B'::name)
 (2 rows)
 
 --Testcase 71:

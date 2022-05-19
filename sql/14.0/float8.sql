@@ -322,6 +322,9 @@ DELETE FROM FLOAT8_TMP;
 --Testcase 116:
 INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 '144', float8 '0.5');
 --Testcase 117:
+EXPLAIN VERBOSE
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+--Testcase 164:
 SELECT power(f1, f2) FROM FLOAT8_TMP;
 
 --Testcase 118:
@@ -329,6 +332,9 @@ DELETE FROM FLOAT8_TMP;
 --Testcase 119:
 INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 'NaN', float8 '0.5');
 --Testcase 120:
+EXPLAIN VERBOSE
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+--Testcase 165:
 SELECT power(f1, f2) FROM FLOAT8_TMP;
 
 --Testcase 121:
@@ -336,6 +342,9 @@ DELETE FROM FLOAT8_TMP;
 --Testcase 122:
 INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 '144', float8 'NaN');
 --Testcase 123:
+EXPLAIN VERBOSE
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+--Testcase 166:
 SELECT power(f1, f2) FROM FLOAT8_TMP;
 
 --Testcase 124:

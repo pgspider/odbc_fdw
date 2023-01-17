@@ -1,0 +1,1610 @@
+--
+-- mysql
+-- float8
+--
+\set ECHO none
+\i sql/14.5/float8.sql
+--
+-- FLOAT8
+--
+--Testcase 1:
+CREATE EXTENSION :DB_EXTENSIONNAME;
+--Testcase 2:
+CREATE SERVER :DB_SERVERNAME FOREIGN DATA WRAPPER :DB_EXTENSIONNAME
+  OPTIONS (odbc_DRIVER :DB_DRIVERNAME, odbc_SERVER :DB_SERVER, odbc_port :DB_PORT, odbc_DATABASE :DB_DATABASE);
+--Testcase 3:
+CREATE USER MAPPING FOR public SERVER :DB_SERVERNAME OPTIONS (odbc_UID :DB_USER, odbc_PWD :DB_PASS);  
+--Testcase 4:
+CREATE FOREIGN TABLE FLOAT8_TBL(f1 float8, id serial OPTIONS (key 'true')) SERVER :DB_SERVERNAME OPTIONS (schema :DB_SCHEMA, table 'float8_tbl');
+--Testcase 5:
+CREATE FOREIGN TABLE FLOAT8_TMP( id serial OPTIONS (key 'true'), f1 float8, f2 float8) SERVER :DB_SERVERNAME OPTIONS (schema :DB_SCHEMA, table 'float8_tmp');
+--Testcase 6:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(f1) VALUES ('    0.0   ');
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Insert on public.float8_tbl  (cost=0.00..0.01 rows=0 width=0)
+   Remote SQL: INSERT INTO odbc_fdw_regress.float8_tbl(f1, id) VALUES (?, ?)
+   ->  Result  (cost=0.00..0.01 rows=1 width=12)
+         Output: '0'::double precision, nextval('float8_tbl_id_seq'::regclass)
+(4 rows)
+
+--Testcase 7:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('    0.0   ');
+--Testcase 8:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(f1) VALUES ('1004.30  ');
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
+ Insert on public.float8_tbl  (cost=0.00..0.01 rows=0 width=0)
+   Remote SQL: INSERT INTO odbc_fdw_regress.float8_tbl(f1, id) VALUES (?, ?)
+   ->  Result  (cost=0.00..0.01 rows=1 width=12)
+         Output: '1004.3'::double precision, nextval('float8_tbl_id_seq'::regclass)
+(4 rows)
+
+--Testcase 9:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('1004.30  ');
+--Testcase 10:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(f1) VALUES ('   -34.84');
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
+ Insert on public.float8_tbl  (cost=0.00..0.01 rows=0 width=0)
+   Remote SQL: INSERT INTO odbc_fdw_regress.float8_tbl(f1, id) VALUES (?, ?)
+   ->  Result  (cost=0.00..0.01 rows=1 width=12)
+         Output: '-34.84'::double precision, nextval('float8_tbl_id_seq'::regclass)
+(4 rows)
+
+--Testcase 11:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('   -34.84');
+--Testcase 12:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(f1) VALUES ('1.2345678901234e+200');
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
+ Insert on public.float8_tbl  (cost=0.00..0.01 rows=0 width=0)
+   Remote SQL: INSERT INTO odbc_fdw_regress.float8_tbl(f1, id) VALUES (?, ?)
+   ->  Result  (cost=0.00..0.01 rows=1 width=12)
+         Output: '1.2345678901234e+200'::double precision, nextval('float8_tbl_id_seq'::regclass)
+(4 rows)
+
+--Testcase 13:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('1.2345678901234e+200');
+--Testcase 14:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(f1) VALUES ('1.2345678901234e-200');
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
+ Insert on public.float8_tbl  (cost=0.00..0.01 rows=0 width=0)
+   Remote SQL: INSERT INTO odbc_fdw_regress.float8_tbl(f1, id) VALUES (?, ?)
+   ->  Result  (cost=0.00..0.01 rows=1 width=12)
+         Output: '1.2345678901234e-200'::double precision, nextval('float8_tbl_id_seq'::regclass)
+(4 rows)
+
+--Testcase 15:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('1.2345678901234e-200');
+-- bad input
+--Testcase 16:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(f1) VALUES ('');
+psql:sql/14.5/float8.sql:46: ERROR:  invalid input syntax for type double precision: ""
+LINE 2: INSERT INTO FLOAT8_TBL(f1) VALUES ('');
+                                           ^
+--Testcase 17:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('');
+psql:sql/14.5/float8.sql:48: ERROR:  invalid input syntax for type double precision: ""
+LINE 1: INSERT INTO FLOAT8_TBL(f1) VALUES ('');
+                                           ^
+--Testcase 18:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(f1) VALUES ('     ');
+psql:sql/14.5/float8.sql:51: ERROR:  invalid input syntax for type double precision: "     "
+LINE 2: INSERT INTO FLOAT8_TBL(f1) VALUES ('     ');
+                                           ^
+--Testcase 19:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('     ');
+psql:sql/14.5/float8.sql:53: ERROR:  invalid input syntax for type double precision: "     "
+LINE 1: INSERT INTO FLOAT8_TBL(f1) VALUES ('     ');
+                                           ^
+--Testcase 20:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(f1) VALUES ('xyz');
+psql:sql/14.5/float8.sql:56: ERROR:  invalid input syntax for type double precision: "xyz"
+LINE 2: INSERT INTO FLOAT8_TBL(f1) VALUES ('xyz');
+                                           ^
+--Testcase 21:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('xyz');
+psql:sql/14.5/float8.sql:58: ERROR:  invalid input syntax for type double precision: "xyz"
+LINE 1: INSERT INTO FLOAT8_TBL(f1) VALUES ('xyz');
+                                           ^
+--Testcase 22:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(f1) VALUES ('5.0.0');
+psql:sql/14.5/float8.sql:61: ERROR:  invalid input syntax for type double precision: "5.0.0"
+LINE 2: INSERT INTO FLOAT8_TBL(f1) VALUES ('5.0.0');
+                                           ^
+--Testcase 23:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('5.0.0');
+psql:sql/14.5/float8.sql:63: ERROR:  invalid input syntax for type double precision: "5.0.0"
+LINE 1: INSERT INTO FLOAT8_TBL(f1) VALUES ('5.0.0');
+                                           ^
+--Testcase 24:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(f1) VALUES ('5 . 0');
+psql:sql/14.5/float8.sql:66: ERROR:  invalid input syntax for type double precision: "5 . 0"
+LINE 2: INSERT INTO FLOAT8_TBL(f1) VALUES ('5 . 0');
+                                           ^
+--Testcase 25:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('5 . 0');
+psql:sql/14.5/float8.sql:68: ERROR:  invalid input syntax for type double precision: "5 . 0"
+LINE 1: INSERT INTO FLOAT8_TBL(f1) VALUES ('5 . 0');
+                                           ^
+--Testcase 26:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(f1) VALUES ('5.   0');
+psql:sql/14.5/float8.sql:71: ERROR:  invalid input syntax for type double precision: "5.   0"
+LINE 2: INSERT INTO FLOAT8_TBL(f1) VALUES ('5.   0');
+                                           ^
+--Testcase 27:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('5.   0');
+psql:sql/14.5/float8.sql:73: ERROR:  invalid input syntax for type double precision: "5.   0"
+LINE 1: INSERT INTO FLOAT8_TBL(f1) VALUES ('5.   0');
+                                           ^
+--Testcase 28:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(f1) VALUES ('    - 3');
+psql:sql/14.5/float8.sql:76: ERROR:  invalid input syntax for type double precision: "    - 3"
+LINE 2: INSERT INTO FLOAT8_TBL(f1) VALUES ('    - 3');
+                                           ^
+--Testcase 29:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('    - 3');
+psql:sql/14.5/float8.sql:78: ERROR:  invalid input syntax for type double precision: "    - 3"
+LINE 1: INSERT INTO FLOAT8_TBL(f1) VALUES ('    - 3');
+                                           ^
+--Testcase 30:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(f1) VALUES ('123           5');
+psql:sql/14.5/float8.sql:81: ERROR:  invalid input syntax for type double precision: "123           5"
+LINE 2: INSERT INTO FLOAT8_TBL(f1) VALUES ('123           5');
+                                           ^
+--Testcase 31:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('123           5');
+psql:sql/14.5/float8.sql:83: ERROR:  invalid input syntax for type double precision: "123           5"
+LINE 1: INSERT INTO FLOAT8_TBL(f1) VALUES ('123           5');
+                                           ^
+-- special inputs
+--Testcase 32:
+ALTER FOREIGN TABLE FLOAT8_TBL OPTIONS (SET table 'float8_tbl_tmp');
+--Testcase 33:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('NaN'::float4);
+psql:sql/14.5/float8.sql:89: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f1' at row 1
+--Testcase 34:
+SELECT f1 AS float4 FROM FLOAT8_TBL;
+ float4 
+--------
+(0 rows)
+
+--Testcase 35:
+DELETE FROM FLOAT8_TBL;
+--Testcase 36:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('nan'::float4);
+psql:sql/14.5/float8.sql:95: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f1' at row 1
+--Testcase 37:
+SELECT f1 AS float4 FROM FLOAT8_TBL;
+ float4 
+--------
+(0 rows)
+
+--Testcase 38:
+DELETE FROM FLOAT8_TBL;
+--Testcase 39:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('   NAN  '::float4);
+psql:sql/14.5/float8.sql:101: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f1' at row 1
+--Testcase 40:
+SELECT f1 AS float4 FROM FLOAT8_TBL;
+ float4 
+--------
+(0 rows)
+
+--Testcase 41:
+DELETE FROM FLOAT8_TBL;
+--Testcase 42:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('infinity'::float4);
+psql:sql/14.5/float8.sql:107: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f1' at row 1
+--Testcase 43:
+SELECT f1 AS float4 FROM FLOAT8_TBL;
+ float4 
+--------
+(0 rows)
+
+--Testcase 44:
+DELETE FROM FLOAT8_TBL;
+--Testcase 45:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('          -INFINiTY   '::float4);
+psql:sql/14.5/float8.sql:113: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f1' at row 1
+--Testcase 46:
+SELECT f1 AS float4 FROM FLOAT8_TBL;
+ float4 
+--------
+(0 rows)
+
+-- bad special inputs
+--Testcase 47:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('N A N'::float4);
+psql:sql/14.5/float8.sql:118: ERROR:  invalid input syntax for type real: "N A N"
+LINE 1: INSERT INTO FLOAT8_TBL(f1) VALUES ('N A N'::float4);
+                                           ^
+--Testcase 48:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('NaN x'::float4);
+psql:sql/14.5/float8.sql:120: ERROR:  invalid input syntax for type real: "NaN x"
+LINE 1: INSERT INTO FLOAT8_TBL(f1) VALUES ('NaN x'::float4);
+                                           ^
+--Testcase 49:
+INSERT INTO FLOAT8_TBL(f1) VALUES (' INFINITY    x'::float4);
+psql:sql/14.5/float8.sql:122: ERROR:  invalid input syntax for type real: " INFINITY    x"
+LINE 1: INSERT INTO FLOAT8_TBL(f1) VALUES (' INFINITY    x'::float4)...
+                                           ^
+--Testcase 50:
+DELETE FROM FLOAT8_TBL;
+--Testcase 51:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('Infinity'::float4);
+psql:sql/14.5/float8.sql:127: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f1' at row 1
+--Testcase 52:
+SELECT (f1::float4 + 100.0) AS float4 FROM FLOAT8_TBL;
+ float4 
+--------
+(0 rows)
+
+--Testcase 53:
+DELETE FROM FLOAT8_TBL;
+--Testcase 54:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('Infinity'::float4);
+psql:sql/14.5/float8.sql:134: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f1' at row 1
+--Testcase 55:
+SELECT (f1::float4 / 'Infinity'::float4) AS float4 FROM FLOAT8_TBL;
+ float4 
+--------
+(0 rows)
+
+--Testcase 56:
+DELETE FROM FLOAT8_TBL;
+--Testcase 57:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('42'::float4);
+--Testcase 58:
+SELECT (f1::float4 / 'Infinity'::float4) AS float4 FROM FLOAT8_TBL;
+ float4 
+--------
+      0
+(1 row)
+
+--Testcase 59:
+DELETE FROM FLOAT8_TBL;
+--Testcase 60:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('nan'::float4);
+psql:sql/14.5/float8.sql:148: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f1' at row 1
+--Testcase 61:
+SELECT (f1::float4 / 'nan'::float4) AS float4 FROM FLOAT8_TBL;
+ float4 
+--------
+(0 rows)
+
+--Testcase 62:
+DELETE FROM FLOAT8_TBL;
+--Testcase 63:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('nan'::float4);
+psql:sql/14.5/float8.sql:155: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f1' at row 1
+--Testcase 64:
+SELECT (f1::float4 / '0'::float4) AS float4 FROM FLOAT8_TBL;
+ float4 
+--------
+(0 rows)
+
+--Testcase 65:
+DELETE FROM FLOAT8_TBL;
+--Testcase 66:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('nan'::numeric);
+psql:sql/14.5/float8.sql:162: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f1' at row 1
+--Testcase 67:
+SELECT (f1::float4) AS float4 FROM FLOAT8_TBL;
+ float4 
+--------
+(0 rows)
+
+--Testcase 68:
+DELETE FROM FLOAT8_TBL;
+--Testcase 69:
+ALTER FOREIGN TABLE FLOAT8_TBL OPTIONS (SET table 'float8_tbl');
+--Testcase 70:
+EXPLAIN VERBOSE
+SELECT f1 FROM FLOAT8_TBL;
+                              QUERY PLAN                               
+-----------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl  (cost=25.00..30.00 rows=5 width=8)
+   Output: f1
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
+(4 rows)
+
+--Testcase 71:
+SELECT f1 FROM FLOAT8_TBL;
+          f1          
+----------------------
+                    0
+               1004.3
+               -34.84
+ 1.2345678901234e+200
+ 1.2345678901234e-200
+(5 rows)
+
+--Testcase 72:
+EXPLAIN VERBOSE
+SELECT f.f1 FROM FLOAT8_TBL f WHERE f.f1 <> '1004.3';
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=25.00..30.00 rows=5 width=8)
+   Output: f1
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((f1 <> 1004.3))
+(4 rows)
+
+--Testcase 73:
+SELECT f.f1 FROM FLOAT8_TBL f WHERE f.f1 <> '1004.3';
+          f1          
+----------------------
+                    0
+               -34.84
+ 1.2345678901234e+200
+ 1.2345678901234e-200
+(4 rows)
+
+--Testcase 74:
+EXPLAIN VERBOSE
+SELECT f.f1 FROM FLOAT8_TBL f WHERE f.f1 = '1004.3';
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=25.00..30.00 rows=5 width=8)
+   Output: f1
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((f1 = 1004.3))
+(4 rows)
+
+--Testcase 75:
+SELECT f.f1 FROM FLOAT8_TBL f WHERE f.f1 = '1004.3';
+   f1   
+--------
+ 1004.3
+(1 row)
+
+--Testcase 76:
+EXPLAIN VERBOSE
+SELECT f.f1 FROM FLOAT8_TBL f WHERE '1004.3' > f.f1;
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=25.00..30.00 rows=5 width=8)
+   Output: f1
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((1004.3 > f1))
+(4 rows)
+
+--Testcase 77:
+SELECT f.f1 FROM FLOAT8_TBL f WHERE '1004.3' > f.f1;
+          f1          
+----------------------
+                    0
+               -34.84
+ 1.2345678901234e-200
+(3 rows)
+
+--Testcase 78:
+EXPLAIN VERBOSE
+SELECT f.f1 FROM FLOAT8_TBL f WHERE  f.f1 < '1004.3';
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=25.00..30.00 rows=5 width=8)
+   Output: f1
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((f1 < 1004.3))
+(4 rows)
+
+--Testcase 79:
+SELECT f.f1 FROM FLOAT8_TBL f WHERE  f.f1 < '1004.3';
+          f1          
+----------------------
+                    0
+               -34.84
+ 1.2345678901234e-200
+(3 rows)
+
+--Testcase 80:
+EXPLAIN VERBOSE
+SELECT f.f1 FROM FLOAT8_TBL f WHERE '1004.3' >= f.f1;
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=25.00..30.00 rows=5 width=8)
+   Output: f1
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((1004.3 >= f1))
+(4 rows)
+
+--Testcase 81:
+SELECT f.f1 FROM FLOAT8_TBL f WHERE '1004.3' >= f.f1;
+          f1          
+----------------------
+                    0
+               1004.3
+               -34.84
+ 1.2345678901234e-200
+(4 rows)
+
+--Testcase 82:
+EXPLAIN VERBOSE
+SELECT f.f1 FROM FLOAT8_TBL f WHERE  f.f1 <= '1004.3';
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=25.00..30.00 rows=5 width=8)
+   Output: f1
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((f1 <= 1004.3))
+(4 rows)
+
+--Testcase 83:
+SELECT f.f1 FROM FLOAT8_TBL f WHERE  f.f1 <= '1004.3';
+          f1          
+----------------------
+                    0
+               1004.3
+               -34.84
+ 1.2345678901234e-200
+(4 rows)
+
+--Testcase 84:
+EXPLAIN VERBOSE
+SELECT f.f1, f.f1 * '-10' AS x
+   FROM FLOAT8_TBL f
+   WHERE f.f1 > '0.0';
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=16)
+   Output: f1, (f1 * '-10'::double precision)
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((f1 > 0))
+(4 rows)
+
+--Testcase 85:
+SELECT f.f1, f.f1 * '-10' AS x
+   FROM FLOAT8_TBL f
+   WHERE f.f1 > '0.0';
+          f1          |           x           
+----------------------+-----------------------
+               1004.3 |                -10043
+ 1.2345678901234e+200 | -1.2345678901234e+201
+ 1.2345678901234e-200 | -1.2345678901234e-199
+(3 rows)
+
+--Testcase 86:
+EXPLAIN VERBOSE
+SELECT f.f1, f.f1 + '-10' AS x
+   FROM FLOAT8_TBL f
+   WHERE f.f1 > '0.0';
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=16)
+   Output: f1, (f1 + '-10'::double precision)
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((f1 > 0))
+(4 rows)
+
+--Testcase 87:
+SELECT f.f1, f.f1 + '-10' AS x
+   FROM FLOAT8_TBL f
+   WHERE f.f1 > '0.0';
+          f1          |          x           
+----------------------+----------------------
+               1004.3 |                994.3
+ 1.2345678901234e+200 | 1.2345678901234e+200
+ 1.2345678901234e-200 |                  -10
+(3 rows)
+
+--Testcase 88:
+EXPLAIN VERBOSE
+SELECT f.f1, f.f1 / '-10' AS x
+   FROM FLOAT8_TBL f
+   WHERE f.f1 > '0.0';
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=16)
+   Output: f1, (f1 / '-10'::double precision)
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((f1 > 0))
+(4 rows)
+
+--Testcase 89:
+SELECT f.f1, f.f1 / '-10' AS x
+   FROM FLOAT8_TBL f
+   WHERE f.f1 > '0.0';
+          f1          |           x           
+----------------------+-----------------------
+               1004.3 |   -100.42999999999999
+ 1.2345678901234e+200 | -1.2345678901234e+199
+ 1.2345678901234e-200 | -1.2345678901234e-201
+(3 rows)
+
+--Testcase 90:
+EXPLAIN VERBOSE
+SELECT f.f1, f.f1 - '-10' AS x
+   FROM FLOAT8_TBL f
+   WHERE f.f1 > '0.0';
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=16)
+   Output: f1, (f1 - '-10'::double precision)
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((f1 > 0))
+(4 rows)
+
+--Testcase 91:
+SELECT f.f1, f.f1 - '-10' AS x
+   FROM FLOAT8_TBL f
+   WHERE f.f1 > '0.0';
+          f1          |          x           
+----------------------+----------------------
+               1004.3 |               1014.3
+ 1.2345678901234e+200 | 1.2345678901234e+200
+ 1.2345678901234e-200 |                   10
+(3 rows)
+
+--Testcase 92:
+EXPLAIN VERBOSE
+SELECT f.f1 ^ '2.0' AS square_f1
+   FROM FLOAT8_TBL f where f.f1 = '1004.3';
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=8)
+   Output: (f1 ^ '2'::double precision)
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((f1 = 1004.3))
+(4 rows)
+
+--Testcase 93:
+SELECT f.f1 ^ '2.0' AS square_f1
+   FROM FLOAT8_TBL f where f.f1 = '1004.3';
+     square_f1      
+--------------------
+ 1008618.4899999999
+(1 row)
+
+-- absolute value
+--Testcase 94:
+EXPLAIN VERBOSE
+SELECT f.f1, @f.f1 AS abs_f1
+   FROM FLOAT8_TBL f;
+                                QUERY PLAN                                
+--------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=16)
+   Output: f1, (@ f1)
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
+(4 rows)
+
+--Testcase 95:
+SELECT f.f1, @f.f1 AS abs_f1
+   FROM FLOAT8_TBL f;
+          f1          |        abs_f1        
+----------------------+----------------------
+                    0 |                    0
+               1004.3 |               1004.3
+               -34.84 |                34.84
+ 1.2345678901234e+200 | 1.2345678901234e+200
+ 1.2345678901234e-200 | 1.2345678901234e-200
+(5 rows)
+
+-- truncate
+--Testcase 96:
+EXPLAIN VERBOSE
+SELECT f.f1, trunc(f.f1) AS trunc_f1
+   FROM FLOAT8_TBL f;
+                                QUERY PLAN                                
+--------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=16)
+   Output: f1, trunc(f1)
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
+(4 rows)
+
+--Testcase 97:
+SELECT f.f1, trunc(f.f1) AS trunc_f1
+   FROM FLOAT8_TBL f;
+          f1          |       trunc_f1       
+----------------------+----------------------
+                    0 |                    0
+               1004.3 |                 1004
+               -34.84 |                  -34
+ 1.2345678901234e+200 | 1.2345678901234e+200
+ 1.2345678901234e-200 |                    0
+(5 rows)
+
+-- round
+--Testcase 98:
+EXPLAIN VERBOSE
+SELECT f.f1, round(f.f1) AS round_f1
+   FROM FLOAT8_TBL f;
+                                QUERY PLAN                                
+--------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=16)
+   Output: f1, round(f1)
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
+(4 rows)
+
+--Testcase 99:
+SELECT f.f1, round(f.f1) AS round_f1
+   FROM FLOAT8_TBL f;
+          f1          |       round_f1       
+----------------------+----------------------
+                    0 |                    0
+               1004.3 |                 1004
+               -34.84 |                  -35
+ 1.2345678901234e+200 | 1.2345678901234e+200
+ 1.2345678901234e-200 |                    0
+(5 rows)
+
+-- ceil / ceiling
+--Testcase 100:
+EXPLAIN VERBOSE
+select ceil(f1) as ceil_f1 from float8_tbl f;
+                               QUERY PLAN                                
+-------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=8)
+   Output: ceil(f1)
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
+(4 rows)
+
+--Testcase 101:
+select ceil(f1) as ceil_f1 from float8_tbl f;
+       ceil_f1        
+----------------------
+                    0
+                 1005
+                  -34
+ 1.2345678901234e+200
+                    1
+(5 rows)
+
+--Testcase 102:
+EXPLAIN VERBOSE
+select ceiling(f1) as ceiling_f1 from float8_tbl f;
+                               QUERY PLAN                                
+-------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=8)
+   Output: ceiling(f1)
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
+(4 rows)
+
+--Testcase 103:
+select ceiling(f1) as ceiling_f1 from float8_tbl f;
+      ceiling_f1      
+----------------------
+                    0
+                 1005
+                  -34
+ 1.2345678901234e+200
+                    1
+(5 rows)
+
+-- floor
+--Testcase 104:
+EXPLAIN VERBOSE
+select floor(f1) as floor_f1 from float8_tbl f;
+                               QUERY PLAN                                
+-------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=8)
+   Output: floor(f1)
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
+(4 rows)
+
+--Testcase 105:
+select floor(f1) as floor_f1 from float8_tbl f;
+       floor_f1       
+----------------------
+                    0
+                 1004
+                  -35
+ 1.2345678901234e+200
+                    0
+(5 rows)
+
+-- sign
+--Testcase 106:
+EXPLAIN VERBOSE
+select sign(f1) as sign_f1 from float8_tbl f;
+                               QUERY PLAN                                
+-------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=8)
+   Output: sign(f1)
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
+(4 rows)
+
+--Testcase 107:
+select sign(f1) as sign_f1 from float8_tbl f;
+ sign_f1 
+---------
+       0
+       1
+      -1
+       1
+       1
+(5 rows)
+
+-- avoid bit-exact output here because operations may not be bit-exact.
+--Testcase 108:
+SET extra_float_digits = 0;
+-- square root
+--Testcase 109:
+EXPLAIN VERBOSE
+SELECT sqrt(float8 '64') AS eight;
+                QUERY PLAN                
+------------------------------------------
+ Result  (cost=0.00..0.01 rows=1 width=8)
+   Output: '8'::double precision
+(2 rows)
+
+--Testcase 110:
+SELECT sqrt(float8 '64') AS eight;
+ eight 
+-------
+     8
+(1 row)
+
+--Testcase 111:
+EXPLAIN VERBOSE
+SELECT |/ float8 '64' AS eight;
+                QUERY PLAN                
+------------------------------------------
+ Result  (cost=0.00..0.01 rows=1 width=8)
+   Output: '8'::double precision
+(2 rows)
+
+--Testcase 112:
+SELECT |/ float8 '64' AS eight;
+ eight 
+-------
+     8
+(1 row)
+
+--Testcase 113:
+EXPLAIN VERBOSE
+SELECT f.f1, |/f.f1 AS sqrt_f1
+   FROM FLOAT8_TBL f
+   WHERE f.f1 > '0.0';
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=16)
+   Output: f1, (|/ f1)
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((f1 > 0))
+(4 rows)
+
+--Testcase 114:
+SELECT f.f1, |/f.f1 AS sqrt_f1
+   FROM FLOAT8_TBL f
+   WHERE f.f1 > '0.0';
+          f1          |        sqrt_f1        
+----------------------+-----------------------
+               1004.3 |      31.6906926399535
+ 1.2345678901234e+200 | 1.11111110611109e+100
+ 1.2345678901234e-200 | 1.11111110611109e-100
+(3 rows)
+
+-- power
+--Testcase 115:
+DELETE FROM FLOAT8_TMP;
+--Testcase 116:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 '144', float8 '0.5');
+--Testcase 117:
+EXPLAIN VERBOSE
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+                              QUERY PLAN                               
+-----------------------------------------------------------------------
+ Foreign Scan on public.float8_tmp  (cost=25.00..26.00 rows=1 width=8)
+   Output: power(f1, f2)
+   Foreign Table Size: 1 b
+   Remote SQL: SELECT f1, f2 FROM odbc_fdw_regress.float8_tmp
+(4 rows)
+
+--Testcase 164:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+    12
+(1 row)
+
+--Testcase 118:
+DELETE FROM FLOAT8_TMP;
+--Testcase 119:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 'NaN', float8 '0.5');
+psql:sql/14.5/float8.sql:333: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f1' at row 1
+--Testcase 120:
+EXPLAIN VERBOSE
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+                              QUERY PLAN                               
+-----------------------------------------------------------------------
+ Foreign Scan on public.float8_tmp  (cost=25.00..26.00 rows=1 width=8)
+   Output: power(f1, f2)
+   Foreign Table Size: 0 b
+   Remote SQL: SELECT f1, f2 FROM odbc_fdw_regress.float8_tmp
+(4 rows)
+
+--Testcase 165:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 121:
+DELETE FROM FLOAT8_TMP;
+--Testcase 122:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 '144', float8 'NaN');
+psql:sql/14.5/float8.sql:343: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f2' at row 1
+--Testcase 123:
+EXPLAIN VERBOSE
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+                              QUERY PLAN                               
+-----------------------------------------------------------------------
+ Foreign Scan on public.float8_tmp  (cost=25.00..26.00 rows=1 width=8)
+   Output: power(f1, f2)
+   Foreign Table Size: 0 b
+   Remote SQL: SELECT f1, f2 FROM odbc_fdw_regress.float8_tmp
+(4 rows)
+
+--Testcase 166:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 124:
+DELETE FROM FLOAT8_TMP;
+--Testcase 125:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 'NaN', float8 'NaN');
+psql:sql/14.5/float8.sql:353: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f1' at row 1
+--Testcase 126:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 127:
+DELETE FROM FLOAT8_TMP;
+--Testcase 128:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 '-1', float8 'NaN');
+psql:sql/14.5/float8.sql:360: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f2' at row 1
+--Testcase 129:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 130:
+DELETE FROM FLOAT8_TMP;
+--Testcase 131:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 '1', float8 'NaN');
+psql:sql/14.5/float8.sql:367: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f2' at row 1
+--Testcase 132:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 133:
+DELETE FROM FLOAT8_TMP;
+--Testcase 134:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 'NaN', float8 '0');
+psql:sql/14.5/float8.sql:374: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f1' at row 1
+--Testcase 135:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 136:
+DELETE FROM FLOAT8_TMP;
+--Testcase 137:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 'inf', float8 '0');
+psql:sql/14.5/float8.sql:381: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f1' at row 1
+--Testcase 138:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 139:
+DELETE FROM FLOAT8_TMP;
+--Testcase 140:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 '-inf', float8 '0');
+psql:sql/14.5/float8.sql:388: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f1' at row 1
+--Testcase 141:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 142:
+DELETE FROM FLOAT8_TMP;
+--Testcase 143:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 '0', float8 'inf');
+psql:sql/14.5/float8.sql:395: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f2' at row 1
+--Testcase 144:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 145:
+DELETE FROM FLOAT8_TMP;
+--Testcase 146:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 '0', float8 '-inf');
+psql:sql/14.5/float8.sql:402: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f2' at row 1
+--Testcase 147:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 148:
+DELETE FROM FLOAT8_TMP;
+--Testcase 149:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 '1', float8 'inf');
+psql:sql/14.5/float8.sql:409: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f2' at row 1
+--Testcase 150:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 151:
+DELETE FROM FLOAT8_TMP;
+--Testcase 152:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 '1', float8 '-inf');
+psql:sql/14.5/float8.sql:416: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f2' at row 1
+--Testcase 153:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 154:
+DELETE FROM FLOAT8_TMP;
+--Testcase 155:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 '-1', float8 'inf');
+psql:sql/14.5/float8.sql:423: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f2' at row 1
+--Testcase 156:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 157:
+DELETE FROM FLOAT8_TMP;
+--Testcase 158:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 '-1', float8 '-inf');
+psql:sql/14.5/float8.sql:430: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f2' at row 1
+--Testcase 159:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 160:
+DELETE FROM FLOAT8_TMP;
+--Testcase 161:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 '0.1', float8 'inf');
+psql:sql/14.5/float8.sql:437: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f2' at row 1
+--Testcase 162:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 163:
+DELETE FROM FLOAT8_TMP;
+--Testcase 164:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 '-0.1', float8 'inf');
+psql:sql/14.5/float8.sql:444: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f2' at row 1
+--Testcase 165:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 166:
+DELETE FROM FLOAT8_TMP;
+--Testcase 167:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 '1.1', float8 'inf');
+psql:sql/14.5/float8.sql:451: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f2' at row 1
+--Testcase 168:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 169:
+DELETE FROM FLOAT8_TMP;
+--Testcase 170:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 '-1.1', float8 'inf');
+psql:sql/14.5/float8.sql:458: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f2' at row 1
+--Testcase 171:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 172:
+DELETE FROM FLOAT8_TMP;
+--Testcase 173:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 '0.1', float8 '-inf');
+psql:sql/14.5/float8.sql:465: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f2' at row 1
+--Testcase 174:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 175:
+DELETE FROM FLOAT8_TMP;
+--Testcase 176:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 '-0.1', float8 '-inf');
+psql:sql/14.5/float8.sql:472: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f2' at row 1
+--Testcase 177:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 178:
+DELETE FROM FLOAT8_TMP;
+--Testcase 179:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 '1.1', float8 '-inf');
+psql:sql/14.5/float8.sql:479: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f2' at row 1
+--Testcase 180:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 181:
+DELETE FROM FLOAT8_TMP;
+--Testcase 182:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 '-1.1', float8 '-inf');
+psql:sql/14.5/float8.sql:486: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f2' at row 1
+--Testcase 183:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 184:
+DELETE FROM FLOAT8_TMP;
+--Testcase 185:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 'inf', float8 '-2');
+psql:sql/14.5/float8.sql:493: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f1' at row 1
+--Testcase 186:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 187:
+DELETE FROM FLOAT8_TMP;
+--Testcase 188:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 'inf', float8 '2');
+psql:sql/14.5/float8.sql:500: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f1' at row 1
+--Testcase 189:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 190:
+DELETE FROM FLOAT8_TMP;
+--Testcase 191:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 'inf', float8 'inf');
+psql:sql/14.5/float8.sql:507: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f1' at row 1
+--Testcase 192:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 193:
+DELETE FROM FLOAT8_TMP;
+--Testcase 194:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 'inf', float8 '-inf');
+psql:sql/14.5/float8.sql:514: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f1' at row 1
+--Testcase 195:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+-- Intel's icc misoptimizes the code that controls the sign of this result,
+-- even with -mp1.  Pending a fix for that, only test for "is it zero".
+--Testcase 196:
+DELETE FROM FLOAT8_TMP;
+--Testcase 197:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 '-inf', float8 '-2');
+psql:sql/14.5/float8.sql:523: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f1' at row 1
+--Testcase 198:
+SELECT power(f1, f2) = '0' FROM FLOAT8_TMP;
+ ?column? 
+----------
+(0 rows)
+
+--Testcase 199:
+DELETE FROM FLOAT8_TMP;
+--Testcase 200:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 '-inf', float8 '-3');
+psql:sql/14.5/float8.sql:530: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f1' at row 1
+--Testcase 201:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 202:
+DELETE FROM FLOAT8_TMP;
+--Testcase 203:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 '-inf', float8 '2');
+psql:sql/14.5/float8.sql:537: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f1' at row 1
+--Testcase 204:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 205:
+DELETE FROM FLOAT8_TMP;
+--Testcase 206:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 '-inf', float8 '3');
+psql:sql/14.5/float8.sql:544: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f1' at row 1
+--Testcase 207:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 208:
+DELETE FROM FLOAT8_TMP;
+--Testcase 209:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 '-inf', float8 '3.5');
+psql:sql/14.5/float8.sql:551: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f1' at row 1
+--Testcase 210:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 211:
+DELETE FROM FLOAT8_TMP;
+--Testcase 212:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 '-inf', float8 'inf');
+psql:sql/14.5/float8.sql:558: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f1' at row 1
+--Testcase 213:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+--Testcase 214:
+DELETE FROM FLOAT8_TMP;
+--Testcase 215:
+INSERT INTO FLOAT8_TMP(f1, f2) VALUES (float8 '-inf', float8 '-inf');
+psql:sql/14.5/float8.sql:565: ERROR:  Executing ODBC query
+[MySQL][ODBC 8.0(w) Driver][mysqld-8.0.31]Data truncated for column 'f1' at row 1
+--Testcase 216:
+SELECT power(f1, f2) FROM FLOAT8_TMP;
+ power 
+-------
+(0 rows)
+
+-- take exp of ln(f.f1)
+--Testcase 217:
+EXPLAIN VERBOSE
+SELECT f.f1, exp(ln(f.f1)) AS exp_ln_f1
+   FROM FLOAT8_TBL f
+   WHERE f.f1 > '0.0';
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=25.00..30.02 rows=5 width=16)
+   Output: f1, exp(ln(f1))
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((f1 > 0))
+(4 rows)
+
+--Testcase 218:
+SELECT f.f1, exp(ln(f.f1)) AS exp_ln_f1
+   FROM FLOAT8_TBL f
+   WHERE f.f1 > '0.0';
+          f1          |       exp_ln_f1       
+----------------------+-----------------------
+               1004.3 |                1004.3
+ 1.2345678901234e+200 | 1.23456789012338e+200
+ 1.2345678901234e-200 | 1.23456789012339e-200
+(3 rows)
+
+--Testcase 219:
+EXPLAIN VERBOSE
+SELECT f.f1, ||/f.f1 AS cbrt_f1 FROM FLOAT8_TBL f;
+                                QUERY PLAN                                
+--------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=16)
+   Output: f1, (||/ f1)
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
+(4 rows)
+
+--Testcase 220:
+SELECT f.f1, ||/f.f1 AS cbrt_f1 FROM FLOAT8_TBL f;
+          f1          |       cbrt_f1        
+----------------------+----------------------
+                    0 |                    0
+               1004.3 |      10.014312837827
+               -34.84 |    -3.26607421344208
+ 1.2345678901234e+200 | 4.97933859234765e+66
+ 1.2345678901234e-200 |  2.3112042409018e-67
+(5 rows)
+
+--Testcase 221:
+EXPLAIN VERBOSE
+SELECT f1 FROM FLOAT8_TBL;
+                              QUERY PLAN                               
+-----------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl  (cost=25.00..30.00 rows=5 width=8)
+   Output: f1
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
+(4 rows)
+
+--Testcase 222:
+SELECT f1 FROM FLOAT8_TBL;
+          f1          
+----------------------
+                    0
+               1004.3
+               -34.84
+ 1.2345678901234e+200
+ 1.2345678901234e-200
+(5 rows)
+
+--Testcase 223:
+EXPLAIN VERBOSE
+UPDATE FLOAT8_TBL
+   SET f1 = FLOAT8_TBL.f1 * '-1'
+   WHERE FLOAT8_TBL.f1 > '0.0';
+                                     QUERY PLAN                                      
+-------------------------------------------------------------------------------------
+ Update on public.float8_tbl  (cost=25.00..30.01 rows=0 width=0)
+   Remote SQL: UPDATE odbc_fdw_regress.float8_tbl SET f1 = ? WHERE id = ?
+   ->  Foreign Scan on public.float8_tbl  (cost=25.00..30.01 rows=5 width=48)
+         Output: (f1 * '-1'::double precision), id, float8_tbl.*
+         Foreign Table Size: 5 b
+         Remote SQL: SELECT f1, id FROM odbc_fdw_regress.float8_tbl WHERE ((f1 > 0))
+(6 rows)
+
+--Testcase 224:
+UPDATE FLOAT8_TBL
+   SET f1 = FLOAT8_TBL.f1 * '-1'
+   WHERE FLOAT8_TBL.f1 > '0.0';
+--Testcase 225:
+EXPLAIN VERBOSE
+SELECT f.f1 * '1e200' from FLOAT8_TBL f;
+                               QUERY PLAN                                
+-------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=8)
+   Output: (f1 * '1e+200'::double precision)
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
+(4 rows)
+
+--Testcase 226:
+SELECT f.f1 * '1e200' from FLOAT8_TBL f;
+psql:sql/14.5/float8.sql:602: ERROR:  value out of range: overflow
+--Testcase 227:
+EXPLAIN VERBOSE
+SELECT f.f1 ^ '1e200' from FLOAT8_TBL f;
+                               QUERY PLAN                                
+-------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=8)
+   Output: (f1 ^ '1e+200'::double precision)
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
+(4 rows)
+
+--Testcase 228:
+SELECT f.f1 ^ '1e200' from FLOAT8_TBL f;
+psql:sql/14.5/float8.sql:607: ERROR:  value out of range: overflow
+-- EXPLAIN VERBOSE
+-- SELECT 0 ^ 0 + 0 ^ 1 + 0 ^ 0.0 + 0 ^ 0.5; -- comment out because of no foreign table
+-- SELECT 0 ^ 0 + 0 ^ 1 + 0 ^ 0.0 + 0 ^ 0.5; -- comment out because of no foreign table
+--Testcase 229:
+EXPLAIN VERBOSE
+SELECT ln(f.f1) from FLOAT8_TBL f where f.f1 = '0.0' ;
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=8)
+   Output: ln(f1)
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((f1 = 0))
+(4 rows)
+
+--Testcase 230:
+SELECT ln(f.f1) from FLOAT8_TBL f where f.f1 = '0.0' ;
+psql:sql/14.5/float8.sql:615: ERROR:  cannot take logarithm of zero
+--Testcase 231:
+EXPLAIN VERBOSE
+SELECT ln(f.f1) from FLOAT8_TBL f where f.f1 < '0.0' ;
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=8)
+   Output: ln(f1)
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl WHERE ((f1 < 0))
+(4 rows)
+
+--Testcase 232:
+SELECT ln(f.f1) from FLOAT8_TBL f where f.f1 < '0.0' ;
+psql:sql/14.5/float8.sql:620: ERROR:  cannot take logarithm of a negative number
+--Testcase 233:
+EXPLAIN VERBOSE
+SELECT exp(f.f1) from FLOAT8_TBL f;
+                               QUERY PLAN                                
+-------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=8)
+   Output: exp(f1)
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
+(4 rows)
+
+--Testcase 234:
+SELECT exp(f.f1) from FLOAT8_TBL f;
+psql:sql/14.5/float8.sql:625: ERROR:  value out of range: underflow
+--Testcase 235:
+EXPLAIN VERBOSE
+SELECT f.f1 / '0.0' from FLOAT8_TBL f;
+                               QUERY PLAN                                
+-------------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl f  (cost=25.00..30.01 rows=5 width=8)
+   Output: (f1 / '0'::double precision)
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
+(4 rows)
+
+--Testcase 236:
+SELECT f.f1 / '0.0' from FLOAT8_TBL f;
+psql:sql/14.5/float8.sql:630: ERROR:  division by zero
+--Testcase 237:
+EXPLAIN VERBOSE
+SELECT f1 FROM FLOAT8_TBL;
+                              QUERY PLAN                               
+-----------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl  (cost=25.00..30.00 rows=5 width=8)
+   Output: f1
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
+(4 rows)
+
+--Testcase 238:
+SELECT f1 FROM FLOAT8_TBL;
+          f1           
+-----------------------
+                     0
+               -1004.3
+                -34.84
+ -1.2345678901234e+200
+ -1.2345678901234e-200
+(5 rows)
+
+--Testcase 239:
+RESET extra_float_digits;
+-- test for over- and underflow
+--Testcase 240:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(f1) VALUES ('10e400');
+psql:sql/14.5/float8.sql:641: ERROR:  "10e400" is out of range for type double precision
+LINE 2: INSERT INTO FLOAT8_TBL(f1) VALUES ('10e400');
+                                           ^
+--Testcase 241:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('10e400');
+psql:sql/14.5/float8.sql:643: ERROR:  "10e400" is out of range for type double precision
+LINE 1: INSERT INTO FLOAT8_TBL(f1) VALUES ('10e400');
+                                           ^
+--Testcase 242:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(f1) VALUES ('-10e400');
+psql:sql/14.5/float8.sql:646: ERROR:  "-10e400" is out of range for type double precision
+LINE 2: INSERT INTO FLOAT8_TBL(f1) VALUES ('-10e400');
+                                           ^
+--Testcase 243:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('-10e400');
+psql:sql/14.5/float8.sql:648: ERROR:  "-10e400" is out of range for type double precision
+LINE 1: INSERT INTO FLOAT8_TBL(f1) VALUES ('-10e400');
+                                           ^
+--Testcase 244:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(f1) VALUES ('10e-400');
+psql:sql/14.5/float8.sql:651: ERROR:  "10e-400" is out of range for type double precision
+LINE 2: INSERT INTO FLOAT8_TBL(f1) VALUES ('10e-400');
+                                           ^
+--Testcase 245:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('10e-400');
+psql:sql/14.5/float8.sql:653: ERROR:  "10e-400" is out of range for type double precision
+LINE 1: INSERT INTO FLOAT8_TBL(f1) VALUES ('10e-400');
+                                           ^
+--Testcase 246:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(f1) VALUES ('-10e-400');
+psql:sql/14.5/float8.sql:656: ERROR:  "-10e-400" is out of range for type double precision
+LINE 2: INSERT INTO FLOAT8_TBL(f1) VALUES ('-10e-400');
+                                           ^
+--Testcase 247:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('-10e-400');
+psql:sql/14.5/float8.sql:658: ERROR:  "-10e-400" is out of range for type double precision
+LINE 1: INSERT INTO FLOAT8_TBL(f1) VALUES ('-10e-400');
+                                           ^
+-- maintain external table consistency across platforms
+-- delete all values and reinsert well-behaved ones
+--Testcase 248:
+EXPLAIN VERBOSE
+DELETE FROM FLOAT8_TBL;
+                                 QUERY PLAN                                  
+-----------------------------------------------------------------------------
+ Delete on public.float8_tbl  (cost=25.00..30.00 rows=0 width=0)
+   Remote SQL: DELETE FROM odbc_fdw_regress.float8_tbl WHERE id = ?
+   ->  Foreign Scan on public.float8_tbl  (cost=25.00..30.00 rows=5 width=4)
+         Output: id
+         Foreign Table Size: 5 b
+         Remote SQL: SELECT id FROM odbc_fdw_regress.float8_tbl
+(6 rows)
+
+--Testcase 249:
+DELETE FROM FLOAT8_TBL;
+--Testcase 250:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(f1) VALUES ('0.0');
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Insert on public.float8_tbl  (cost=0.00..0.01 rows=0 width=0)
+   Remote SQL: INSERT INTO odbc_fdw_regress.float8_tbl(f1, id) VALUES (?, ?)
+   ->  Result  (cost=0.00..0.01 rows=1 width=12)
+         Output: '0'::double precision, nextval('float8_tbl_id_seq'::regclass)
+(4 rows)
+
+--Testcase 251:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('0.0');
+--Testcase 252:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(f1) VALUES ('-34.84');
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
+ Insert on public.float8_tbl  (cost=0.00..0.01 rows=0 width=0)
+   Remote SQL: INSERT INTO odbc_fdw_regress.float8_tbl(f1, id) VALUES (?, ?)
+   ->  Result  (cost=0.00..0.01 rows=1 width=12)
+         Output: '-34.84'::double precision, nextval('float8_tbl_id_seq'::regclass)
+(4 rows)
+
+--Testcase 253:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('-34.84');
+--Testcase 254:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(f1) VALUES ('-1004.30');
+                                     QUERY PLAN                                      
+-------------------------------------------------------------------------------------
+ Insert on public.float8_tbl  (cost=0.00..0.01 rows=0 width=0)
+   Remote SQL: INSERT INTO odbc_fdw_regress.float8_tbl(f1, id) VALUES (?, ?)
+   ->  Result  (cost=0.00..0.01 rows=1 width=12)
+         Output: '-1004.3'::double precision, nextval('float8_tbl_id_seq'::regclass)
+(4 rows)
+
+--Testcase 255:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('-1004.30');
+--Testcase 256:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(f1) VALUES ('-1.2345678901234e+200');
+                                            QUERY PLAN                                             
+---------------------------------------------------------------------------------------------------
+ Insert on public.float8_tbl  (cost=0.00..0.01 rows=0 width=0)
+   Remote SQL: INSERT INTO odbc_fdw_regress.float8_tbl(f1, id) VALUES (?, ?)
+   ->  Result  (cost=0.00..0.01 rows=1 width=12)
+         Output: '-1.2345678901234e+200'::double precision, nextval('float8_tbl_id_seq'::regclass)
+(4 rows)
+
+--Testcase 257:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('-1.2345678901234e+200');
+--Testcase 258:
+EXPLAIN VERBOSE
+INSERT INTO FLOAT8_TBL(f1) VALUES ('-1.2345678901234e-200');
+                                            QUERY PLAN                                             
+---------------------------------------------------------------------------------------------------
+ Insert on public.float8_tbl  (cost=0.00..0.01 rows=0 width=0)
+   Remote SQL: INSERT INTO odbc_fdw_regress.float8_tbl(f1, id) VALUES (?, ?)
+   ->  Result  (cost=0.00..0.01 rows=1 width=12)
+         Output: '-1.2345678901234e-200'::double precision, nextval('float8_tbl_id_seq'::regclass)
+(4 rows)
+
+--Testcase 259:
+INSERT INTO FLOAT8_TBL(f1) VALUES ('-1.2345678901234e-200');
+--Testcase 260:
+EXPLAIN VERBOSE
+SELECT f1 FROM FLOAT8_TBL;
+                              QUERY PLAN                               
+-----------------------------------------------------------------------
+ Foreign Scan on public.float8_tbl  (cost=25.00..30.00 rows=5 width=8)
+   Output: f1
+   Foreign Table Size: 5 b
+   Remote SQL: SELECT f1 FROM odbc_fdw_regress.float8_tbl
+(4 rows)
+
+--Testcase 261:
+SELECT f1 FROM FLOAT8_TBL;
+          f1           
+-----------------------
+                     0
+                -34.84
+               -1004.3
+ -1.2345678901234e+200
+ -1.2345678901234e-200
+(5 rows)
+
+--Testcase 262:
+DROP SERVER :DB_SERVERNAME CASCADE;
+psql:sql/14.5/float8.sql:697: NOTICE:  drop cascades to 3 other objects
+DETAIL:  drop cascades to user mapping for public on server mysql_server
+drop cascades to foreign table float8_tbl
+drop cascades to foreign table float8_tmp
+--Testcase 263:
+DROP EXTENSION :DB_EXTENSIONNAME CASCADE;

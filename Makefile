@@ -4,6 +4,7 @@
 #
 # Copyright (c) 2011, PostgreSQL Global Development Group
 # Copyright (c) 2016, CARTO
+# Copyright (c) 2021, TOSHIBA CORPORATION
 #
 # This software is released under the PostgreSQL Licence
 #

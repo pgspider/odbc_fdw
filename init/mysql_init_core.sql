@@ -215,6 +215,11 @@ CREATE TABLE upsert_test (a INT PRIMARY KEY, b varchar(10));
 CREATE TABLE timestamp_tbl (id int primary key, d1 timestamp(2));
 CREATE TABLE timestamp_tmp (id int primary key, d1 timestamp(6), d2 timestamp(6));
 
+-- CREATE TABLE nocols();
+CREATE TABLE generate_timestamp1 (d1 timestamp);
+CREATE TABLE generate_timestamp2 (d1 timestamp);
+CREATE TABLE generate_timestamp3 (d1 timestamp);
+
 -- import data from csv file
 LOAD DATA LOCAL INFILE './data/onek.data' INTO TABLE onek FIELDS TERMINATED BY '\t' LINES TERMINATED BY '\n';
 LOAD DATA LOCAL INFILE './data/onek.data' INTO TABLE onek2 FIELDS TERMINATED BY '\t' LINES TERMINATED BY '\n';

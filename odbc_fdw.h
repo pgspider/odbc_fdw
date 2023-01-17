@@ -3,7 +3,7 @@
  * odbc_fdw.h
  *		  foreign-data wrapper for ODBC
  *
- * Copyright (c) 2021, TOSHIBA Corporation
+ * Copyright (c) 2021, TOSHIBA CORPORATION
  *
  * IDENTIFICATION
  *		  contrib/odbc_fdw/odbc_fdw.h

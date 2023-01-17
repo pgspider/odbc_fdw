@@ -4,7 +4,7 @@ MYSQL_HOST="localhost"
 MYSQL_PORT="3306"
 MYSQL_USER_NAME="root"
 MYSQL_DB_NAME="odbc_fdw_regress"
-export PGS_SRC_DIR="/home/test/workplace/postgresql-13.0"
+export PGS_SRC_DIR="/home/test/workplace/postgresql-15.0"
 
 # Below commands must be run first time to create mysql_db
 # --connect to mysql with root user
@@ -22,6 +22,7 @@ export PGS_SRC_DIR="/home/test/workplace/postgresql-13.0"
 # SET GLOBAL time_zone = '-8:00';
 # SET GLOBAL log_bin_trust_function_creators = 1;
 # SET GLOBAL local_infile=1;
+# SET GLOBAL sql_mode='TRADITIONAL';
 # -- Use "||" operator as CONCAT operator
 # SET GLOBAL sql_mode=(SELECT CONCAT(@@sql_mode, ',PIPES_AS_CONCAT'));
 

@@ -2,7 +2,7 @@
  *
  *        foreign-data wrapper for ODBC
  *
- * Copyright (c) 2021, TOSHIBA Corporation
+ * Copyright (c) 2021, TOSHIBA CORPORATION
  * Copyright (c) 2011, PostgreSQL Global Development Group
  *
  * This software is released under the PostgreSQL Licence.
@@ -137,7 +137,7 @@ PG_MODULE_MAGIC;
 typedef enum { NO_TRUNCATION, FRACTIONAL_TRUNCATION, STRING_TRUNCATION } GetDataTruncation;
 
 #define IS_KEY_COLUMN(A)	((strcmp(A->defname, "key") == 0) && \
-							 (strcmp(((Value *)(A->arg))->val.str, "true") == 0))
+							 (strcmp(strVal(A->arg), "true") == 0))
 
 /*
  * Similarly, this enum describes what's kept in the fdw_private list for
@@ -3628,6 +3628,9 @@ bindJunkColumnValue(odbcFdwModifyState *fmstate, TupleTableSlot *slot, TupleTabl
 				value = ExecGetJunkAttribute(planSlot, fmstate->junk_idx[i], &is_null);
 				typeoid = att->atttypid;
 
+				if (is_null)
+					elog(ERROR, "Value of key column is NULL");
+
 				/* Bind qual */
 				bind_stmt_param(fmstate, typeoid, bindnum, value);
 				bindnum++;
@@ -3674,6 +3677,13 @@ odbc_set_transmission_modes(void)
 		(void) set_config_option("extra_float_digits", "3",
 								 PGC_USERSET, PGC_S_SESSION,
 								 GUC_ACTION_SAVE, true, 0, false);
+	/*
+	 * In addition force restrictive search_path, in case there are any
+	 * regproc or similar constants to be printed.
+	 */
+	(void) set_config_option("search_path", "pg_catalog",
+							 PGC_USERSET, PGC_S_SESSION,
+							 GUC_ACTION_SAVE, true, 0, false);
 
 	return nestlevel;
 }

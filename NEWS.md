@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.5.2.3-3
+Released 2023-01-13
+
+Changes:
+- Support PosgreSQL 15
+- Fix bind null for junk column
+
+## 0.5.2.3-2
+Released 2022-06-21
+
+Changes:
+- WHERE clause push-down
+- Column push-down
+- Pushdown function in WHERE clause
+- Pushdown aggregate function on SELECT clause (target list)
+
+## 0.5.2.3-1
+Released 2021-12-23
+
+Changes:
+- Support PosgreSQL 14
+- Support DML query
+- Add enhance test
+
 ## 0.5.2.3
 Released 2020-11-09
 

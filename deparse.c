@@ -3,7 +3,7 @@
  * deparse.c
  *		  Query deparser for odbc_fdw
  *
- * Portions Copyright (c) 2021, TOSHIBA Corporation
+ * Portions Copyright (c) 2021, TOSHIBA CORPORATION
  * Portions Copyright (c) 2012-2021, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
@@ -898,7 +898,7 @@ odbc_classify_conditions(PlannerInfo *root,
 bool
 odbc_is_builtin(Oid oid)
 {
-	return (oid < FirstBootstrapObjectId);
+	return (oid < FirstGenbkiObjectId);
 }
 
 

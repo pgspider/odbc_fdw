@@ -1,0 +1,685 @@
+--
+-- MySql
+-- INT4
+--
+\set ECHO none
+\i sql/13.8/int4.sql
+--Testcase 1:
+CREATE EXTENSION IF NOT EXISTS :DB_EXTENSIONNAME;
+--Testcase 2:
+CREATE SERVER :DB_SERVERNAME FOREIGN DATA WRAPPER :DB_EXTENSIONNAME
+            OPTIONS (odbc_DRIVER :DB_DRIVERNAME,
+                    odbc_SERVER :DB_SERVER,
+					odbc_PORT :DB_PORT,
+					odbc_DATABASE :DB_DATABASE
+			);
+--Testcase 3:
+CREATE USER MAPPING FOR public SERVER :DB_SERVERNAME OPTIONS(odbc_UID :DB_USER, odbc_PWD :DB_PASS);
+-- Create foreign table without table option
+--Testcase 4:
+CREATE FOREIGN TABLE INT4_TBL(id serial OPTIONS (key 'true'), f1 int4) SERVER :DB_SERVERNAME OPTIONS (schema :DB_SCHEMA);
+--Testcase 5:
+CREATE FOREIGN TABLE INT4_TMP(id serial OPTIONS (key 'true'), a int4, b int4) SERVER :DB_SERVERNAME OPTIONS (schema :DB_SCHEMA, table 'int4_tbl_tmp2');
+--Testcase 6:
+DELETE FROM INT4_TBL;
+--Testcase 7:
+DELETE FROM INT4_TMP;
+--Testcase 8:
+INSERT INTO INT4_TBL(f1) VALUES ('   0  ');
+--Testcase 9:
+INSERT INTO INT4_TBL(f1) VALUES ('123456     ');
+--Testcase 10:
+INSERT INTO INT4_TBL(f1) VALUES ('    -123456');
+--Testcase 11:
+INSERT INTO INT4_TBL(f1) VALUES ('34.5');
+psql:sql/13.8/int4.sql:34: ERROR:  invalid input syntax for type integer: "34.5"
+LINE 1: INSERT INTO INT4_TBL(f1) VALUES ('34.5');
+                                         ^
+-- largest and smallest values
+--Testcase 12:
+INSERT INTO INT4_TBL(f1) VALUES ('2147483647');
+--Testcase 13:
+INSERT INTO INT4_TBL(f1) VALUES ('-2147483647');
+-- bad input values -- should give errors
+--Testcase 14:
+INSERT INTO INT4_TBL(f1) VALUES ('1000000000000');
+psql:sql/13.8/int4.sql:45: ERROR:  value "1000000000000" is out of range for type integer
+LINE 1: INSERT INTO INT4_TBL(f1) VALUES ('1000000000000');
+                                         ^
+--Testcase 15:
+INSERT INTO INT4_TBL(f1) VALUES ('asdf');
+psql:sql/13.8/int4.sql:47: ERROR:  invalid input syntax for type integer: "asdf"
+LINE 1: INSERT INTO INT4_TBL(f1) VALUES ('asdf');
+                                         ^
+--Testcase 16:
+INSERT INTO INT4_TBL(f1) VALUES ('     ');
+psql:sql/13.8/int4.sql:49: ERROR:  invalid input syntax for type integer: "     "
+LINE 1: INSERT INTO INT4_TBL(f1) VALUES ('     ');
+                                         ^
+--Testcase 17:
+INSERT INTO INT4_TBL(f1) VALUES ('   asdf   ');
+psql:sql/13.8/int4.sql:51: ERROR:  invalid input syntax for type integer: "   asdf   "
+LINE 1: INSERT INTO INT4_TBL(f1) VALUES ('   asdf   ');
+                                         ^
+--Testcase 18:
+INSERT INTO INT4_TBL(f1) VALUES ('- 1234');
+psql:sql/13.8/int4.sql:53: ERROR:  invalid input syntax for type integer: "- 1234"
+LINE 1: INSERT INTO INT4_TBL(f1) VALUES ('- 1234');
+                                         ^
+--Testcase 19:
+INSERT INTO INT4_TBL(f1) VALUES ('123       5');
+psql:sql/13.8/int4.sql:55: ERROR:  invalid input syntax for type integer: "123       5"
+LINE 1: INSERT INTO INT4_TBL(f1) VALUES ('123       5');
+                                         ^
+--Testcase 20:
+INSERT INTO INT4_TBL(f1) VALUES ('');
+psql:sql/13.8/int4.sql:57: ERROR:  invalid input syntax for type integer: ""
+LINE 1: INSERT INTO INT4_TBL(f1) VALUES ('');
+                                         ^
+--Testcase 21:
+SELECT '' AS five, f1 FROM INT4_TBL;
+ five |     f1      
+------+-------------
+      |           0
+      |      123456
+      |     -123456
+      |  2147483647
+      | -2147483647
+(5 rows)
+
+--Testcase 22:
+SELECT '' AS four, i.f1 FROM INT4_TBL i WHERE i.f1 <> int2 '0';
+ four |     f1      
+------+-------------
+      |      123456
+      |     -123456
+      |  2147483647
+      | -2147483647
+(4 rows)
+
+--Testcase 23:
+SELECT '' AS four, i.f1 FROM INT4_TBL i WHERE i.f1 <> int4 '0';
+ four |     f1      
+------+-------------
+      |      123456
+      |     -123456
+      |  2147483647
+      | -2147483647
+(4 rows)
+
+--Testcase 24:
+SELECT '' AS one, i.f1 FROM INT4_TBL i WHERE i.f1 = int2 '0';
+ one | f1 
+-----+----
+     |  0
+(1 row)
+
+--Testcase 25:
+SELECT '' AS one, i.f1 FROM INT4_TBL i WHERE i.f1 = int4 '0';
+ one | f1 
+-----+----
+     |  0
+(1 row)
+
+--Testcase 26:
+SELECT '' AS two, i.f1 FROM INT4_TBL i WHERE i.f1 < int2 '0';
+ two |     f1      
+-----+-------------
+     |     -123456
+     | -2147483647
+(2 rows)
+
+--Testcase 27:
+SELECT '' AS two, i.f1 FROM INT4_TBL i WHERE i.f1 < int4 '0';
+ two |     f1      
+-----+-------------
+     |     -123456
+     | -2147483647
+(2 rows)
+
+--Testcase 28:
+SELECT '' AS three, i.f1 FROM INT4_TBL i WHERE i.f1 <= int2 '0';
+ three |     f1      
+-------+-------------
+       |           0
+       |     -123456
+       | -2147483647
+(3 rows)
+
+--Testcase 29:
+SELECT '' AS three, i.f1 FROM INT4_TBL i WHERE i.f1 <= int4 '0';
+ three |     f1      
+-------+-------------
+       |           0
+       |     -123456
+       | -2147483647
+(3 rows)
+
+--Testcase 30:
+SELECT '' AS two, i.f1 FROM INT4_TBL i WHERE i.f1 > int2 '0';
+ two |     f1     
+-----+------------
+     |     123456
+     | 2147483647
+(2 rows)
+
+--Testcase 31:
+SELECT '' AS two, i.f1 FROM INT4_TBL i WHERE i.f1 > int4 '0';
+ two |     f1     
+-----+------------
+     |     123456
+     | 2147483647
+(2 rows)
+
+--Testcase 32:
+SELECT '' AS three, i.f1 FROM INT4_TBL i WHERE i.f1 >= int2 '0';
+ three |     f1     
+-------+------------
+       |          0
+       |     123456
+       | 2147483647
+(3 rows)
+
+--Testcase 33:
+SELECT '' AS three, i.f1 FROM INT4_TBL i WHERE i.f1 >= int4 '0';
+ three |     f1     
+-------+------------
+       |          0
+       |     123456
+       | 2147483647
+(3 rows)
+
+-- positive odds
+--Testcase 34:
+SELECT '' AS one, i.f1 FROM INT4_TBL i WHERE (i.f1 % int2 '2') = int2 '1';
+ one |     f1     
+-----+------------
+     | 2147483647
+(1 row)
+
+-- any evens
+--Testcase 35:
+SELECT '' AS three, i.f1 FROM INT4_TBL i WHERE (i.f1 % int4 '2') = int2 '0';
+ three |   f1    
+-------+---------
+       |       0
+       |  123456
+       | -123456
+(3 rows)
+
+--Testcase 36:
+SELECT '' AS five, i.f1, i.f1 * int2 '2' AS x FROM INT4_TBL i;
+psql:sql/13.8/int4.sql:107: ERROR:  integer out of range
+--Testcase 37:
+SELECT '' AS five, i.f1, i.f1 * int2 '2' AS x FROM INT4_TBL i
+WHERE abs(f1) < 1073741824;
+ five |   f1    |    x    
+------+---------+---------
+      |       0 |       0
+      |  123456 |  246912
+      | -123456 | -246912
+(3 rows)
+
+--Testcase 38:
+SELECT '' AS five, i.f1, i.f1 * int4 '2' AS x FROM INT4_TBL i;
+psql:sql/13.8/int4.sql:114: ERROR:  integer out of range
+--Testcase 39:
+SELECT '' AS five, i.f1, i.f1 * int4 '2' AS x FROM INT4_TBL i
+WHERE abs(f1) < 1073741824;
+ five |   f1    |    x    
+------+---------+---------
+      |       0 |       0
+      |  123456 |  246912
+      | -123456 | -246912
+(3 rows)
+
+--Testcase 40:
+SELECT '' AS five, i.f1, i.f1 + int2 '2' AS x FROM INT4_TBL i;
+psql:sql/13.8/int4.sql:121: ERROR:  integer out of range
+--Testcase 41:
+SELECT '' AS five, i.f1, i.f1 + int2 '2' AS x FROM INT4_TBL i
+WHERE f1 < 2147483646;
+ five |     f1      |      x      
+------+-------------+-------------
+      |           0 |           2
+      |      123456 |      123458
+      |     -123456 |     -123454
+      | -2147483647 | -2147483645
+(4 rows)
+
+--Testcase 42:
+SELECT '' AS five, i.f1, i.f1 + int4 '2' AS x FROM INT4_TBL i;
+psql:sql/13.8/int4.sql:128: ERROR:  integer out of range
+--Testcase 43:
+SELECT '' AS five, i.f1, i.f1 + int4 '2' AS x FROM INT4_TBL i
+WHERE f1 < 2147483646;
+ five |     f1      |      x      
+------+-------------+-------------
+      |           0 |           2
+      |      123456 |      123458
+      |     -123456 |     -123454
+      | -2147483647 | -2147483645
+(4 rows)
+
+--Testcase 44:
+SELECT '' AS five, i.f1, i.f1 - int2 '2' AS x FROM INT4_TBL i;
+psql:sql/13.8/int4.sql:135: ERROR:  integer out of range
+--Testcase 45:
+SELECT '' AS five, i.f1, i.f1 - int2 '2' AS x FROM INT4_TBL i
+WHERE f1 > -2147483647;
+ five |     f1     |     x      
+------+------------+------------
+      |          0 |         -2
+      |     123456 |     123454
+      |    -123456 |    -123458
+      | 2147483647 | 2147483645
+(4 rows)
+
+--Testcase 46:
+SELECT '' AS five, i.f1, i.f1 - int4 '2' AS x FROM INT4_TBL i;
+psql:sql/13.8/int4.sql:142: ERROR:  integer out of range
+--Testcase 47:
+SELECT '' AS five, i.f1, i.f1 - int4 '2' AS x FROM INT4_TBL i
+WHERE f1 > -2147483647;
+ five |     f1     |     x      
+------+------------+------------
+      |          0 |         -2
+      |     123456 |     123454
+      |    -123456 |    -123458
+      | 2147483647 | 2147483645
+(4 rows)
+
+--Testcase 48:
+SELECT '' AS five, i.f1, i.f1 / int2 '2' AS x FROM INT4_TBL i;
+ five |     f1      |      x      
+------+-------------+-------------
+      |           0 |           0
+      |      123456 |       61728
+      |     -123456 |      -61728
+      |  2147483647 |  1073741823
+      | -2147483647 | -1073741823
+(5 rows)
+
+--Testcase 49:
+SELECT '' AS five, i.f1, i.f1 / int4 '2' AS x FROM INT4_TBL i;
+ five |     f1      |      x      
+------+-------------+-------------
+      |           0 |           0
+      |      123456 |       61728
+      |     -123456 |      -61728
+      |  2147483647 |  1073741823
+      | -2147483647 | -1073741823
+(5 rows)
+
+--
+-- more complex expressions
+--
+-- variations on unary minus parsing
+--Testcase 50:
+ALTER FOREIGN TABLE INT4_TBL OPTIONS (table 'int4_tbl_tmp');
+--Testcase 51:
+INSERT INTO INT4_TBL(f1) VALUES (-2);
+--Testcase 52:
+SELECT (f1+3) as one FROM INT4_TBL;
+ one 
+-----
+   1
+(1 row)
+
+--Testcase 53:
+DELETE FROM INT4_TBL;
+--Testcase 54:
+INSERT INTO INT4_TBL(f1) VALUES (4);
+--Testcase 55:
+SELECT (f1-2) as two FROM INT4_TBL;
+ two 
+-----
+   2
+(1 row)
+
+--Testcase 56:
+DELETE FROM INT4_TBL;
+--Testcase 57:
+INSERT INTO INT4_TBL(f1) VALUES (2);
+--Testcase 58:
+SELECT (f1- -1) as three FROM INT4_TBL;
+ three 
+-------
+     3
+(1 row)
+
+--Testcase 59:
+DELETE FROM INT4_TBL;
+--Testcase 60:
+INSERT INTO INT4_TBL(f1) VALUES (2);
+--Testcase 61:
+SELECT (f1 - -2) as four FROM INT4_TBL;
+ four 
+------
+    4
+(1 row)
+
+--Testcase 62:
+DELETE FROM INT4_TMP;
+--Testcase 63:
+INSERT INTO INT4_TMP(a, b) VALUES (int2 '2' * int2 '2', int2 '16' / int2 '4');
+--Testcase 64:
+SELECT (a = b) as true FROM INT4_TMP;
+ true 
+------
+ t
+(1 row)
+
+--Testcase 65:
+DELETE FROM INT4_TMP;
+--Testcase 66:
+INSERT INTO INT4_TMP(a, b) VALUES (int4 '2' * int2 '2', int2 '16' / int4 '4');
+--Testcase 67:
+SELECT (a = b) as true FROM INT4_TMP;
+ true 
+------
+ t
+(1 row)
+
+--Testcase 68:
+DELETE FROM INT4_TMP;
+--Testcase 69:
+INSERT INTO INT4_TMP(a, b) VALUES (int2 '2' * int4 '2', int4 '16' / int2 '4');
+--Testcase 70:
+SELECT (a = b) as true FROM INT4_TMP;
+ true 
+------
+ t
+(1 row)
+
+--Testcase 71:
+DELETE FROM INT4_TMP;
+--Testcase 72:
+INSERT INTO INT4_TMP(a, b) VALUES (int4 '1000', int4 '999');
+--Testcase 73:
+SELECT (a < b) as false FROM INT4_TMP;
+ false 
+-------
+ f
+(1 row)
+
+--Testcase 74:
+DELETE FROM INT4_TBL;
+--Testcase 75:
+INSERT INTO INT4_TBL(f1) VALUES (4!);
+--Testcase 76:
+SELECT f1 as twenty_four FROM INT4_TBL;
+ twenty_four 
+-------------
+          24
+(1 row)
+
+--Testcase 77:
+DELETE FROM INT4_TBL;
+--Testcase 78:
+INSERT INTO INT4_TBL(f1) VALUES (!!3);
+--Testcase 79:
+SELECT f1 as six FROM INT4_TBL;
+ six 
+-----
+   6
+(1 row)
+
+--Testcase 80:
+DELETE FROM INT4_TBL;
+--Testcase 81:
+INSERT INTO INT4_TBL(f1) VALUES (1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1);
+--Testcase 82:
+SELECT f1 as ten FROM INT4_TBL;
+ ten 
+-----
+  10
+(1 row)
+
+--Testcase 83:
+DELETE FROM INT4_TBL;
+--Testcase 84:
+INSERT INTO INT4_TBL(f1) VALUES (2 + 2 / 2);
+--Testcase 85:
+SELECT f1 as three FROM INT4_TBL;
+ three 
+-------
+     3
+(1 row)
+
+--Testcase 86:
+DELETE FROM INT4_TBL;
+--Testcase 87:
+INSERT INTO INT4_TBL(f1) VALUES ((2 + 2) / 2);
+--Testcase 88:
+SELECT f1 as two FROM INT4_TBL;
+ two 
+-----
+   2
+(1 row)
+
+-- corner case
+--Testcase 89:
+DELETE FROM INT4_TBL;
+--Testcase 90:
+INSERT INTO INT4_TBL(f1) VALUES ((-1::int4<<31));
+--Testcase 91:
+SELECT f1::text AS text FROM INT4_TBL;
+    text     
+-------------
+ -2147483648
+(1 row)
+
+--Testcase 92:
+SELECT (f1+1)::text FROM INT4_TBL;
+    text     
+-------------
+ -2147483647
+(1 row)
+
+-- check sane handling of INT_MIN overflow cases
+--Testcase 93:
+DELETE FROM INT4_TBL;
+--Testcase 94:
+INSERT INTO INT4_TBL(f1) VALUES ((-2147483648)::int4);
+--Testcase 95:
+SELECT (f1 * (-1)::int4) FROM INT4_TBL;
+psql:sql/13.8/int4.sql:265: ERROR:  integer out of range
+--Testcase 96:
+DELETE FROM INT4_TBL;
+--Testcase 97:
+INSERT INTO INT4_TBL(f1) VALUES ((-2147483648)::int4);
+--Testcase 98:
+SELECT (f1 / (-1)::int4) FROM INT4_TBL;
+psql:sql/13.8/int4.sql:272: ERROR:  integer out of range
+--Testcase 99:
+DELETE FROM INT4_TBL;
+--Testcase 100:
+INSERT INTO INT4_TBL(f1) VALUES ((-2147483648)::int4);
+--Testcase 101:
+SELECT (f1 % (-1)::int4) FROM INT4_TBL;
+ ?column? 
+----------
+        0
+(1 row)
+
+--Testcase 102:
+DELETE FROM INT4_TBL;
+--Testcase 103:
+INSERT INTO INT4_TBL(f1) VALUES ((-2147483648)::int4);
+--Testcase 104:
+SELECT (f1 * (-1)::int2) FROM INT4_TBL;
+psql:sql/13.8/int4.sql:286: ERROR:  integer out of range
+--Testcase 105:
+DELETE FROM INT4_TBL;
+--Testcase 106:
+INSERT INTO INT4_TBL(f1) VALUES ((-2147483648)::int4);
+--Testcase 107:
+SELECT (f1 / (-1)::int2) FROM INT4_TBL;
+psql:sql/13.8/int4.sql:293: ERROR:  integer out of range
+--Testcase 108:
+DELETE FROM INT4_TBL;
+--Testcase 109:
+INSERT INTO INT4_TBL(f1) VALUES ((-2147483648)::int4);
+--Testcase 110:
+SELECT (f1 % (-1)::int2) FROM INT4_TBL;
+ ?column? 
+----------
+        0
+(1 row)
+
+-- check rounding when casting from float
+--Testcase 111:
+CREATE FOREIGN TABLE FLOAT8_TBL(id serial OPTIONS (key 'true'), f1 float8) SERVER :DB_SERVERNAME OPTIONS (schema :DB_SCHEMA, table 'float8_tbl_tmp'); 
+--Testcase 112:
+DELETE FROM FLOAT8_TBL;
+--Testcase 113:
+INSERT INTO FLOAT8_TBL(f1) VALUES 
+	(-2.5::float8),
+        (-1.5::float8),
+        (-0.5::float8),
+        (0.0::float8),
+        (0.5::float8),
+        (1.5::float8),
+        (2.5::float8);
+--Testcase 114:
+SELECT f1 as x, f1::int4 AS int4_value FROM FLOAT8_TBL;
+  x   | int4_value 
+------+------------
+ -2.5 |         -2
+ -1.5 |         -2
+ -0.5 |          0
+    0 |          0
+  0.5 |          0
+  1.5 |          2
+  2.5 |          2
+(7 rows)
+
+-- check rounding when casting from numeric
+--Testcase 115:
+DELETE FROM FLOAT8_TBL;
+--Testcase 116:
+INSERT INTO FLOAT8_TBL(f1) VALUES 
+	(-2.5::numeric),
+        (-1.5::numeric),
+        (-0.5::numeric),
+        (0.0::numeric),
+        (0.5::numeric),
+        (1.5::numeric),
+        (2.5::numeric);
+--Testcase 117:
+SELECT f1::numeric as x, f1::numeric::int4 AS int4_value FROM FLOAT8_TBL;
+  x   | int4_value 
+------+------------
+ -2.5 |         -3
+ -1.5 |         -2
+ -0.5 |         -1
+    0 |          0
+  0.5 |          1
+  1.5 |          2
+  2.5 |          3
+(7 rows)
+
+-- test gcd()
+--Testcase 118:
+DELETE FROM INT4_TMP;
+--Testcase 119:
+INSERT INTO INT4_TMP(a, b) VALUES (0::int4, 0::int4);
+--Testcase 120:
+INSERT INTO INT4_TMP(a, b) VALUES (0::int4, 6410818::int4);
+--Testcase 121:
+INSERT INTO INT4_TMP(a, b) VALUES (61866666::int4, 6410818::int4);
+--Testcase 122:
+INSERT INTO INT4_TMP(a, b) VALUES (-61866666::int4, 6410818::int4);
+--Testcase 123:
+INSERT INTO INT4_TMP(a, b) VALUES ((-2147483648)::int4, 1::int4);
+--Testcase 124:
+INSERT INTO INT4_TMP(a, b) VALUES ((-2147483648)::int4, 2147483647::int4);
+--Testcase 125:
+INSERT INTO INT4_TMP(a, b) VALUES ((-2147483648)::int4, 1073741824::int4);
+--Testcase 126:
+SELECT a, b, gcd(a, b), gcd(a, -b), gcd(b, a), gcd(-b, a) FROM INT4_TMP;
+      a      |     b      |    gcd     |    gcd     |    gcd     |    gcd     
+-------------+------------+------------+------------+------------+------------
+           0 |          0 |          0 |          0 |          0 |          0
+           0 |    6410818 |    6410818 |    6410818 |    6410818 |    6410818
+    61866666 |    6410818 |       1466 |       1466 |       1466 |       1466
+   -61866666 |    6410818 |       1466 |       1466 |       1466 |       1466
+ -2147483648 |          1 |          1 |          1 |          1 |          1
+ -2147483648 | 2147483647 |          1 |          1 |          1 |          1
+ -2147483648 | 1073741824 | 1073741824 | 1073741824 | 1073741824 | 1073741824
+(7 rows)
+
+--Testcase 127:
+DELETE FROM INT4_TMP;
+--Testcase 128:
+INSERT INTO INT4_TMP(a, b) VALUES ((-2147483648)::int4, 0::int4);
+--Testcase 129:
+SELECT gcd(a, b) FROM INT4_TMP;    -- overflow
+psql:sql/13.8/int4.sql:360: ERROR:  integer out of range
+--Testcase 130:
+DELETE FROM INT4_TMP;
+--Testcase 131:
+INSERT INTO INT4_TMP(a, b) VALUES ((-2147483648)::int4, (-2147483648)::int4);
+--Testcase 132:
+SELECT gcd(a, b) FROM INT4_TMP;    -- overflow
+psql:sql/13.8/int4.sql:367: ERROR:  integer out of range
+-- test lcm()
+--Testcase 133:
+DELETE FROM INT4_TMP;
+--Testcase 134:
+INSERT INTO INT4_TMP(a, b) VALUES (0::int4, 0::int4);
+--Testcase 135:
+INSERT INTO INT4_TMP(a, b) VALUES (0::int4, 42::int4);
+--Testcase 136:
+INSERT INTO INT4_TMP(a, b) VALUES (42::int4, 42::int4);
+--Testcase 137:
+INSERT INTO INT4_TMP(a, b) VALUES (330::int4, 462::int4);
+--Testcase 138:
+INSERT INTO INT4_TMP(a, b) VALUES (-330::int4, 462::int4);
+--Testcase 139:
+INSERT INTO INT4_TMP(a, b) VALUES ((-2147483648)::int4, 0::int4);
+--Testcase 140:
+SELECT a, b, lcm(a, b), lcm(a, -b), lcm(b, a), lcm(-b, a) FROM INT4_TMP;
+      a      |  b  | lcm  | lcm  | lcm  | lcm  
+-------------+-----+------+------+------+------
+           0 |   0 |    0 |    0 |    0 |    0
+           0 |  42 |    0 |    0 |    0 |    0
+          42 |  42 |   42 |   42 |   42 |   42
+         330 | 462 | 2310 | 2310 | 2310 | 2310
+        -330 | 462 | 2310 | 2310 | 2310 | 2310
+ -2147483648 |   0 |    0 |    0 |    0 |    0
+(6 rows)
+
+--Testcase 141:
+DELETE FROM INT4_TMP;
+--Testcase 142:
+INSERT INTO INT4_TMP(a, b) VALUES ((-2147483648)::int4, 1::int4);
+--Testcase 143:
+SELECT lcm(a, b) FROM INT4_TMP;    -- overflow
+psql:sql/13.8/int4.sql:392: ERROR:  integer out of range
+--Testcase 144:
+DELETE FROM INT4_TMP;
+--Testcase 145:
+INSERT INTO INT4_TMP(a, b) VALUES (2147483647::int4, 2147483646::int4);
+--Testcase 146:
+SELECT lcm(a, b) FROM INT4_TMP;    -- overflow
+psql:sql/13.8/int4.sql:399: ERROR:  integer out of range
+--Testcase 147:
+DELETE FROM INT4_TBL;
+--Testcase 148:
+DELETE FROM INT4_TMP;
+--Testcase 149:
+DELETE FROM FLOAT8_TBL;
+--Testcase 150:
+DROP FOREIGN TABLE INT4_TMP;
+--Testcase 151:
+DROP FOREIGN TABLE INT4_TBL;
+--Testcase 152:
+DROP FOREIGN TABLE FLOAT8_TBL;
+--Testcase 153:
+DROP USER MAPPING FOR public SERVER :DB_SERVERNAME;
+--Testcase 154:
+DROP SERVER :DB_SERVERNAME;
+--Testcase 155:
+DROP EXTENSION :DB_EXTENSIONNAME CASCADE;

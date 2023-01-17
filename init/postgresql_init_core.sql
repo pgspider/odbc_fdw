@@ -50,6 +50,11 @@ DROP TABLE IF EXISTS upsert_test;
 DROP TABLE IF EXISTS tenk;
 DROP TABLE IF EXISTS timestamp_tbl;
 DROP TABLE IF EXISTS timestamp_tmp;
+DROP TABLE IF EXISTS nocols;
+DROP TABLE IF EXISTS generate_timestamp1;
+DROP TABLE IF EXISTS generate_timestamp2;
+DROP TABLE IF EXISTS generate_timestamp3;
+
 
 CREATE TABLE onek (
 	unique1		int4,
@@ -208,7 +213,7 @@ CREATE TABLE tenk (
 
 
 CREATE TABLE char_tbl (id int primary key, f1 char);
-CREATE TABLE char_tbl_2 (id int primary key, f1 char(4));
+CREATE TABLE char_tbl_2 (id SERIAL PRIMARY KEY, f1 char(4));
 CREATE TABLE date_tbl (id int primary key, f1 date);
 CREATE TABLE regr_test(id int, x float8, y float8);
 
@@ -257,7 +262,10 @@ CREATE TABLE upsert_test (a INT PRIMARY KEY, b text);
 CREATE TABLE timestamp_tbl (id int primary key, d1 timestamp(2) without time zone);
 CREATE TABLE timestamp_tmp (id int primary key, d1 timestamp(6) without time zone, d2 timestamp(6) without time zone);
 
-
+CREATE TABLE nocols();
+CREATE TABLE generate_timestamp1 (d1 timestamp without time zone);
+CREATE TABLE generate_timestamp2 (d1 timestamp without time zone);
+CREATE TABLE generate_timestamp3 (d1 timestamp without time zone);
 -- import data from data file
 \cd data
 \copy onek from 'onek.data' with delimiter E'\t';
@@ -269,4 +277,3 @@ CREATE TABLE timestamp_tmp (id int primary key, d1 timestamp(6) without time zon
 \copy regr_test from 'regr_test.data' with delimiter E'\t';
 \copy int4_tbl from 'int4_tbl.data' with delimiter E'\t';
 \copy int8_tbl from 'int8_tbl.data' with delimiter E'\t';
-

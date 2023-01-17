@@ -320,4 +320,12 @@ Floating-point numbers are approximate and not stored as exact values. A floatin
    * For `log`: Just push down `log(b, x)`, the `log(x)` does not push-down to remote server because of different functionality in the remote side (Mysql ODBC datasource)
    * For `regexp_replace`: Just push-down `regexp_replace(source, pattern, eplacement_string)`, does not push-down the other signature of `regexp_replace` (these signatures is not support by Mysql ODBC datasource)
 
+* COPY and foreign partition routing not supported in odbc_fdw.
+
+NOTES
+-----------
+- ODBC FDW does not support "infinity" or "-infinity" values. Error message "TIMESTAMP_NOT_FINITE" will be shown.
+- For date or date time which has "BC" or "AD", ODBC FDW can not display the "BC" and "AD", only the date or date time part is displayed.
+- ODBC FDW does not accept NULL value as key column when UPDATE or DELETE. Error "Value of key column is NULL" will be shown.
+
 [1]:https://github.com/CartoDB/odbc_fdw

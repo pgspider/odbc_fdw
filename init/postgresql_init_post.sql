@@ -61,6 +61,7 @@ CREATE TRIGGER row_before_insupd_trigger BEFORE INSERT OR UPDATE ON child_tbl FO
 DROP TABLE IF EXISTS loct3 CASCADE;
 create table loct3 (f1 text collate "C" unique, f2 text, f3 varchar(10) unique);
 
+CREATE TABLE child_local (b text, c numeric, a int);
 -- ===================================================================
 -- test serial columns (ie, sequence-based defaults)
 -- ===================================================================

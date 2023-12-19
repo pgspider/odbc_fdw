@@ -167,6 +167,7 @@ CREATE TABLE tenk (
 
 CREATE TABLE char_tbl (f1 char, id int primary key auto_increment);
 CREATE TABLE char_tbl_2 (f1 char(4), id int primary key auto_increment);
+CREATE TABLE non_error_throwing_api (f1 text, id int primary key auto_increment);
 CREATE TABLE date_tbl (f1 date, id int primary key auto_increment);
 CREATE TABLE regr_test(id int, x double, y double);
 

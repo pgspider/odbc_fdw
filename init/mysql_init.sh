@@ -4,14 +4,14 @@ MYSQL_HOST="localhost"
 MYSQL_PORT="3306"
 MYSQL_USER_NAME="root"
 MYSQL_DB_NAME="odbc_fdw_regress"
-export PGS_SRC_DIR="/home/test/workplace/postgresql-15.0"
+export PGS_SRC_DIR="/home/test/workplace/postgresql-16.0"
 
-# Below commands must be run first time to create mysql_db
+# Below commands must be run first time to create odbc_fdw_regress
 # --connect to mysql with root user
 # mysql -u root -p
 
 # --run below
-# CREATE DATABASE mysql_db;
+# CREATE DATABASE odbc_fdw_regress;
 # SET GLOBAL validate_password.policy = LOW;
 # SET GLOBAL validate_password.length = 1;
 # SET GLOBAL validate_password.mixed_case_count = 0;

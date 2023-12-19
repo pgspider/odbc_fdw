@@ -65,6 +65,7 @@ CREATE TABLE child_tbl (a int, b int, id integer primary key auto_increment);
 DROP TABLE IF EXISTS loct3 CASCADE;
 create table loct3 (f1 text, f2 text, f3 varchar(10));
 
+CREATE TABLE child_local (b text, c bigint, a int);
 -- ===================================================================
 -- test serial columns (ie, sequence-based defaults)
 -- ===================================================================

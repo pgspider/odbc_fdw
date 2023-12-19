@@ -13,6 +13,7 @@ DROP TABLE IF EXISTS int8_tbl_tmp2;
 DROP TABLE IF EXISTS float8_tbl;
 DROP TABLE IF EXISTS float8_tmp;
 DROP TABLE IF EXISTS float8_tbl_tmp;
+DROP TABLE IF EXISTS float8_tbl_tmp2;
 DROP TABLE IF EXISTS float4_tbl;
 DROP TABLE IF EXISTS float4_tbl_tmp;
 DROP TABLE IF EXISTS bitwise_test;
@@ -35,6 +36,7 @@ DROP TABLE IF EXISTS foo;
 DROP TABLE IF EXISTS update_test;
 DROP TABLE IF EXISTS char_tbl;
 DROP TABLE IF EXISTS char_tbl_2;
+DROP TABLE IF EXISTS non_error_throwing_api;
 DROP TABLE IF EXISTS date_tbl;
 DROP TABLE IF EXISTS regr_test;
 DROP TABLE IF EXISTS string_agg1;
@@ -214,6 +216,7 @@ CREATE TABLE tenk (
 
 CREATE TABLE char_tbl (id int primary key, f1 char);
 CREATE TABLE char_tbl_2 (id SERIAL PRIMARY KEY, f1 char(4));
+CREATE TABLE non_error_throwing_api (id SERIAL PRIMARY KEY, f1 text);
 CREATE TABLE date_tbl (id int primary key, f1 date);
 CREATE TABLE regr_test(id int, x float8, y float8);
 

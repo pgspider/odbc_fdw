@@ -37,6 +37,11 @@
 #include "commands/explain.h"
 #include "foreign/fdwapi.h"
 #include "foreign/foreign.h"
+#if ((PG_VERSION_NUM >= 130010 && PG_VERSION_NUM < 140000) || \
+	 (PG_VERSION_NUM >= 140007 && PG_VERSION_NUM < 150000) || \
+	  PG_VERSION_NUM >= 150002)
+#include "optimizer/inherit.h"
+#endif
 #include "utils/memutils.h"
 #include "utils/builtins.h"
 #include "utils/relcache.h"
@@ -49,6 +54,9 @@
 #include "utils/array.h"
 #include "utils/builtins.h"
 #include "utils/rel.h"
+#if PG_VERSION_NUM >= 160000
+#include "utils/varlena.h"
+#endif
 #include "nodes/nodes.h"
 #include "nodes/makefuncs.h"
 #include "nodes/pg_list.h"
@@ -385,8 +393,8 @@ static void copy_odbcFdwOptions(odbcFdwOptions* to, odbcFdwOptions* from);
 static void odbc_connection(odbcFdwOptions* options, SQLHENV *env, SQLHDBC *dbc);
 static void odbc_disconnection(SQLHENV *env, SQLHDBC *dbc);
 static void sql_data_type(SQLSMALLINT odbc_data_type, SQLULEN column_size, SQLSMALLINT decimal_digits, SQLSMALLINT nullable, StringInfo sql_type);
-static void odbcGetOptions(Oid server_oid, List *add_options, odbcFdwOptions *extracted_options);
-static void odbcGetTableOptions(Oid foreigntableid, odbcFdwOptions *extracted_options);
+static void odbcGetOptions(Oid server_oid, List *add_options, odbcFdwOptions *extracted_options, Oid userid);
+static void odbcGetTableOptions(Oid foreigntableid, odbcFdwOptions *extracted_options, Oid userid);
 static void odbcGetTableInfo(odbcFdwOptions* options, unsigned int *size, char **quote_char_out, char **name_qualifier_char_out);
 static void check_return(SQLRETURN ret, char *msg, SQLHANDLE handle, SQLSMALLINT type);
 static void odbcConnStr(StringInfoData *conn_str, odbcFdwOptions* options);
@@ -714,13 +722,38 @@ odbc_fdw_validator(PG_FUNCTION_ARGS)
 		/* Complain invalid options */
 		if (!odbcIsValidOption(def->defname, catalog))
 		{
-			struct odbcFdwOption *opt;
-			StringInfoData buf;
-
 			/*
 			 * Unknown option specified, complain about it. Provide a hint
-			 * with list of valid options for the object.
+			 * with a valid option that looks similar, if there is one.
 			 */
+			struct odbcFdwOption *opt;
+#if (PG_VERSION_NUM >= 160000)
+			const char *closest_match;
+			ClosestMatchState match_state;
+			bool		has_valid_options = false;
+
+			initClosestMatch(&match_state, def->defname, 4);
+			for (opt = valid_options; opt->optname; opt++)
+			{
+				if (catalog == opt->optcontext)
+				{
+					has_valid_options = true;
+					updateClosestMatch(&match_state, opt->optname);
+				}
+			}
+
+			closest_match = getClosestMatch(&match_state);
+			ereport(ERROR,
+					(errcode(ERRCODE_FDW_INVALID_OPTION_NAME),
+					 errmsg("invalid option \"%s\"", def->defname),
+					 has_valid_options ? closest_match ?
+					 errhint("Perhaps you meant the option \"%s\".",
+							 closest_match) : 0 :
+					 errhint("There are no valid options in this context.")));
+		}
+#else
+			StringInfoData buf;
+
 			initStringInfo(&buf);
 			for (opt = valid_options; opt->optname; opt++)
 			{
@@ -735,6 +768,7 @@ odbc_fdw_validator(PG_FUNCTION_ARGS)
 			         errhint("Valid options in this context are: %s", buf.len ? buf.data : "<none>")
 			        ));
 		}
+#endif
 
 		/* TODO: detect redundant connection attributes and missing required attributs (dsn or driver)
 		 * Complain about redundent options
@@ -897,7 +931,7 @@ sql_data_type(
  * Fetch the options for a server and options list
  */
 static void
-odbcGetOptions(Oid server_oid, List *add_options, odbcFdwOptions *extracted_options)
+odbcGetOptions(Oid server_oid, List *add_options, odbcFdwOptions *extracted_options, Oid userid)
 {
 	ForeignServer   *server;
 	UserMapping     *mapping;
@@ -906,7 +940,11 @@ odbcGetOptions(Oid server_oid, List *add_options, odbcFdwOptions *extracted_opti
 	elog_debug("%s", __func__);
 
 	server  = GetForeignServer(server_oid);
-	mapping = GetUserMapping(GetUserId(), server_oid);
+
+	if (userid == InvalidOid)
+		mapping = GetUserMapping(GetUserId(), server_oid);
+	else
+		mapping = GetUserMapping(userid, server_oid);
 
 	options = NIL;
 	options = list_concat(options, add_options);
@@ -920,14 +958,14 @@ odbcGetOptions(Oid server_oid, List *add_options, odbcFdwOptions *extracted_opti
  * Fetch the options for a odbc_fdw foreign table.
  */
 static void
-odbcGetTableOptions(Oid foreigntableid, odbcFdwOptions *extracted_options)
+odbcGetTableOptions(Oid foreigntableid, odbcFdwOptions *extracted_options, Oid userid)
 {
 	ForeignTable    *table;
 
 	elog_debug("%s", __func__);
 
 	table = GetForeignTable(foreigntableid);
-	odbcGetOptions(table->serverid, table->options, extracted_options);
+	odbcGetOptions(table->serverid, table->options, extracted_options, userid);
 
 	if (is_blank_string(extracted_options->table))
 		extracted_options->table = get_rel_name(foreigntableid);
@@ -1205,7 +1243,7 @@ odbc_table_size(PG_FUNCTION_ARGS)
 	odbcFdwOptions options;
 
 	tableOptions = lappend(tableOptions, elem);
-	odbcGetOptions(serverOid, tableOptions, &options);
+	odbcGetOptions(serverOid, tableOptions, &options, InvalidOid);
 	odbcGetTableInfo(&options, &tableSize, NULL, NULL);
 
 	PG_RETURN_INT32(tableSize);
@@ -1230,7 +1268,7 @@ odbc_query_size(PG_FUNCTION_ARGS)
 
 	queryOptions = lappend(queryOptions, elem);
 	serverOid = oid_from_server_name(serverName);
-	odbcGetOptions(serverOid, queryOptions, &options);
+	odbcGetOptions(serverOid, queryOptions, &options, InvalidOid);
 	odbcGetTableInfo(&options, &querySize, NULL, NULL);
 
 	PG_RETURN_INT32(querySize);
@@ -1294,7 +1332,7 @@ Datum odbc_tables_list(PG_FUNCTION_ARGS)
 		rowLimit = PG_GETARG_INT32(1);
 		currentRow = 0;
 
-		odbcGetOptions(serverOid, NULL, &options);
+		odbcGetOptions(serverOid, NULL, &options, InvalidOid);
 		odbc_connection(&options, &env, &dbc);
 		SQLAllocHandle(SQL_HANDLE_STMT, dbc, &stmt);
 
@@ -1388,6 +1426,9 @@ static void odbcGetForeignRelSize(PlannerInfo *root, RelOptInfo *baserel, Oid fo
 	odbcFdwOptions options;
 	OdbcFdwRelationInfo *fpinfo;
 	ListCell   *lc;
+#if PG_VERSION_NUM >= 160000
+	Oid userid;
+#endif
 
 	elog_debug("%s", __func__);
 
@@ -1406,8 +1447,19 @@ static void odbcGetForeignRelSize(PlannerInfo *root, RelOptInfo *baserel, Oid fo
 	fpinfo->server = GetForeignServer(fpinfo->table->serverid);
 
 	/* Fetch the foreign table options */
-	odbcGetTableOptions(foreigntableid, &options);
+#if PG_VERSION_NUM >= 160000
+	/*
+	 * If the table or the server is configured to use remote estimates,
+	 * identify which user to do remote access as during planning.  This
+	 * should match what ExecCheckPermissions() does.  If we fail due to lack
+	 * of permissions, the query would have failed at runtime anyway.
+	 */
+	userid = OidIsValid(baserel->userid) ? baserel->userid : GetUserId();
 
+	odbcGetTableOptions(foreigntableid, &options, userid);
+#else
+	odbcGetTableOptions(foreigntableid, &options, InvalidOid);
+#endif
 	odbcGetTableInfo(&options, &table_size, &fpinfo->q_char, &fpinfo->name_qualifier_char);
 
 	/*
@@ -1444,11 +1496,26 @@ static void odbcEstimateCosts(PlannerInfo *root, RelOptInfo *baserel, Cost *star
 {
 	unsigned int table_size   = 0;
 	odbcFdwOptions options;
+#if PG_VERSION_NUM >= 160000
+	Oid userid;
+#endif
 
 	elog_debug("----> starting %s", __func__);
 
 	/* Fetch the foreign table options */
-	odbcGetTableOptions(foreigntableid, &options);
+#if PG_VERSION_NUM >= 160000
+	/*
+	 * If the table or the server is configured to use remote estimates,
+	 * identify which user to do remote access as during planning.  This
+	 * should match what ExecCheckPermissions() does.  If we fail due to lack
+	 * of permissions, the query would have failed at runtime anyway.
+	 */
+	userid = OidIsValid(baserel->userid) ? baserel->userid : GetUserId();
+
+	odbcGetTableOptions(foreigntableid, &options, userid);
+#else
+	odbcGetTableOptions(foreigntableid, &options, InvalidOid);
+#endif
 
 	odbcGetTableInfo(&options, &table_size, NULL, NULL);
 
@@ -1701,17 +1768,33 @@ odbcBeginForeignScan(ForeignScanState *node, int eflags)
 	int			rtindex;
 	TupleTableSlot *tupleSlot = node->ss.ss_ScanTupleSlot;
 	TupleDesc	tupleDescriptor = tupleSlot->tts_tupleDescriptor;
+#if PG_VERSION_NUM >= 160000
+	Oid userid;
+#endif
 
 	elog_debug("%s", __func__);
 
 	if (fsplan->scan.scanrelid > 0)
 		rtindex = fsplan->scan.scanrelid;
 	else
+#if (PG_VERSION_NUM >= 160000)
+		rtindex = bms_next_member(fsplan->fs_base_relids, -1);
+#else
 		rtindex = bms_next_member(fsplan->fs_relids, -1);
+#endif
 	rte = exec_rt_fetch(rtindex, estate);
 
 	/* Fetch the foreign table options */
-	odbcGetTableOptions(rte->relid, &options);
+#if PG_VERSION_NUM >= 160000
+	/*
+	 * Identify which user to do the remote access as.  This should match what
+	 * ExecCheckPermissions() does.
+	 */
+	userid = OidIsValid(fsplan->checkAsUser) ? fsplan->checkAsUser : GetUserId();
+	odbcGetTableOptions(rte->relid, &options, userid);
+#else
+	odbcGetTableOptions(rte->relid, &options, InvalidOid);
+#endif
 
 	odbc_connection(&options, &env, &dbc);
 
@@ -2262,7 +2345,7 @@ odbcImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid)
 
 	elog_debug("%s", __func__);
 
-	odbcGetOptions(serverOid, stmt->options, &options);
+	odbcGetOptions(serverOid, stmt->options, &options, InvalidOid);
 
 	schema_name = get_schema_name(&options);
 	if (schema_name == NULL)
@@ -2709,7 +2792,7 @@ odbcPlanForeignModify(PlannerInfo *root,
 	/*
 	 * get quote/qualifier chars for sql sentence
 	 */
-	odbcGetTableOptions(RelationGetRelid(rel), &options);
+	odbcGetTableOptions(RelationGetRelid(rel), &options, InvalidOid);
 	odbc_connection(&options, &env, &dbc);
 	PG_TRY();
 	{
@@ -2762,7 +2845,15 @@ odbcPlanForeignModify(PlannerInfo *root,
 	else if (operation == CMD_UPDATE)
 	{
 		int			col;
+#if ((PG_VERSION_NUM >= 130010 && PG_VERSION_NUM < 140000) || \
+	 (PG_VERSION_NUM >= 140007 && PG_VERSION_NUM < 150000) || \
+	  PG_VERSION_NUM >= 150002)
+	  	/* get_rel_all_updated_cols is supported from pg 13.10, 14.7, 15.2 and 16 */
+		RelOptInfo *rel = find_base_rel(root, resultRelation);
+		Bitmapset  *allUpdatedCols = get_rel_all_updated_cols(root, rel);
+#else
 		Bitmapset  *allUpdatedCols = bms_union(rte->updatedCols, rte->extraUpdatedCols);
+#endif
 
 		col = -1;
 		while ((col = bms_next_member(allUpdatedCols, col)) >= 0)
@@ -3117,11 +3208,20 @@ create_foreign_modify(EState *estate,
 	Oid			typefnoid;
 	bool		isvarlena;
 	ListCell   *lc;
+#if PG_VERSION_NUM >= 160000
+	Oid userid;
+#endif
 
 	elog_debug("%s", __func__);
 
 	fmstate = (odbcFdwModifyState *) palloc0(sizeof(odbcFdwModifyState));
-	odbcGetTableOptions(RelationGetRelid(rel), &fmstate->options);
+#if PG_VERSION_NUM >= 160000
+	/* Identify which user to do the remote access as. */
+	userid = ExecGetResultRelCheckAsUser(resultRelInfo, estate);
+	odbcGetTableOptions(RelationGetRelid(rel), &fmstate->options, userid);
+#else
+	odbcGetTableOptions(RelationGetRelid(rel), &fmstate->options, InvalidOid);
+#endif
 	elog(DEBUG1, "remote table : %s", fmstate->options.table);
 
 	odbc_connection(&fmstate->options, &env, &dbc);
@@ -4102,10 +4202,10 @@ odbc_foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel, Node *havin
 			 */
 			foreach(l, aggvars)
 			{
-				Expr	   *expr = (Expr *) lfirst(l);
+				Expr	   *aggref = (Expr *) lfirst(l);
 
-				if (IsA(expr, Aggref))
-					tlist = add_to_flat_tlist(tlist, list_make1(expr));
+				if (IsA(aggref, Aggref))
+					tlist = add_to_flat_tlist(tlist, list_make1(aggref));
 			}
 		}
 
@@ -4118,8 +4218,6 @@ odbc_foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel, Node *havin
 	 */
 	if (havingQual)
 	{
-		ListCell   *lc;
-
 		foreach(lc, (List *) havingQual)
 		{
 			Expr	   *expr = (Expr *) lfirst(lc);
@@ -4135,6 +4233,9 @@ odbc_foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel, Node *havin
 									  true,
 									  false,
 									  false,
+#if PG_VERSION_NUM  >= 160000
+									  false,
+#endif
 									  root->qual_security_level,
 									  grouped_rel->relids,
 									  NULL,

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.2.3-4
+Released 2023-12-07
+
+Changes:
+- Support PosgreSQL 16.0
+
 ## 0.5.2.3-3
 Released 2023-01-13
 

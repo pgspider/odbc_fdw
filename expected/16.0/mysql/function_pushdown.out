@@ -1,0 +1,1861 @@
+--
+-- MySQL
+--
+\set ECHO none
+\i sql/16.0/function_pushdown.sql
+--
+-- function push-down
+--
+--Testcase 1:
+CREATE EXTENSION IF NOT EXISTS :DB_EXTENSIONNAME;
+--Testcase 2:
+CREATE SERVER :DB_SERVERNAME FOREIGN DATA WRAPPER :DB_EXTENSIONNAME
+  OPTIONS (odbc_DRIVER :DB_DRIVERNAME, odbc_SERVER :DB_SERVER, odbc_port :DB_PORT, odbc_DATABASE :DB_DATABASE);
+--Testcase 3:
+CREATE USER MAPPING FOR CURRENT_USER SERVER :DB_SERVERNAME OPTIONS (odbc_UID :DB_USER, odbc_PWD :DB_PASS);
+--Testcase 4:
+CREATE FOREIGN TABLE s1(id int, tag1 text, value1 float, value2 int, value3 float, value4 int, value5 numeric, str1 text, str2 text)
+  SERVER :DB_SERVERNAME OPTIONS (schema :DB_SCHEMA, table 's1');
+--Testcase 5:
+CREATE FOREIGN TABLE tbl04 (id int OPTIONS (key 'true'),  c1 float8, c2 bigint, c3 text, c4 boolean, c5 timestamp)
+  SERVER :DB_SERVERNAME OPTIONS (schema :DB_SCHEMA, table 'tbl04');
+--Testcase 6:
+EXPLAIN VERBOSE
+SELECT NULLIF(value2, 100) FROM s1 WHERE NULLIF(value2, 100) IS NULL;
+                                         QUERY PLAN                                         
+--------------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=4)
+   Output: NULLIF(value2, 100)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value2 FROM odbc_fdw_regress.s1 WHERE ((nullif(value2, 100) IS NULL))
+(4 rows)
+
+--Testcase 7:
+SELECT NULLIF(value2, 100) FROM s1 WHERE NULLIF(value2, 100) IS NULL;
+ nullif 
+--------
+       
+       
+       
+(3 rows)
+
+-- numeric function
+--Testcase 8:
+EXPLAIN VERBOSE
+SELECT abs(value1) FROM s1 WHERE abs(value1) > 1;
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=8)
+   Output: abs(value1)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value1 FROM odbc_fdw_regress.s1 WHERE ((abs(value1) > 1))
+(4 rows)
+
+--Testcase 9:
+SELECT abs(value1) FROM s1 WHERE abs(value1) > 1;
+ abs 
+-----
+ 1.1
+ 2.2
+ 3.3
+(3 rows)
+
+--Testcase 10:
+EXPLAIN VERBOSE
+SELECT acos(value1) FROM s1 WHERE value1 < 1 AND acos(value1) > 1;
+                                             QUERY PLAN                                             
+----------------------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=8)
+   Output: acos(value1)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value1 FROM odbc_fdw_regress.s1 WHERE ((value1 < 1)) AND ((acos(value1) > 1))
+(4 rows)
+
+--Testcase 11:
+SELECT acos(value1) FROM s1 WHERE value1 < 1 AND acos(value1) > 1;
+        acos        
+--------------------
+ 1.4706289056333368
+  1.369438406004566
+ 1.2661036727794992
+(3 rows)
+
+--Testcase 12:
+EXPLAIN VERBOSE
+SELECT asin(value1) FROM s1 WHERE value1 < 1 AND asin(value1) < 1;
+                                             QUERY PLAN                                             
+----------------------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=8)
+   Output: asin(value1)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value1 FROM odbc_fdw_regress.s1 WHERE ((value1 < 1)) AND ((asin(value1) < 1))
+(4 rows)
+
+--Testcase 13:
+SELECT asin(value1) FROM s1 WHERE value1 < 1 AND asin(value1) < 1;
+        asin        
+--------------------
+ 0.1001674211615598
+ 0.2013579207903308
+ 0.3046926540153975
+(3 rows)
+
+--Testcase 14:
+EXPLAIN VERBOSE
+SELECT atan(id) FROM s1 WHERE atan(id) > 0.2;
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.03 rows=6 width=8)
+   Output: atan((id)::double precision)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT id FROM odbc_fdw_regress.s1 WHERE ((atan(id) > 0.2))
+(4 rows)
+
+--Testcase 15:
+SELECT atan(id) FROM s1 WHERE atan(id) > 0.2;
+        atan        
+--------------------
+ 0.7853981633974483
+ 1.1071487177940904
+ 1.2490457723982544
+ 1.3258176636680326
+  1.373400766945016
+(5 rows)
+
+--Testcase 16:
+EXPLAIN VERBOSE
+SELECT atan2(PI(), id) FROM s1 WHERE atan2(PI(), id) > 0.2;
+                                          QUERY PLAN                                           
+-----------------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.03 rows=6 width=8)
+   Output: atan2('3.141592653589793'::double precision, (id)::double precision)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT id FROM odbc_fdw_regress.s1 WHERE ((atan2(3.141592653589793, id) > 0.2))
+(4 rows)
+
+--Testcase 17:
+SELECT atan2(PI(), id) FROM s1 WHERE atan2(PI(), id) > 0.2;
+       atan2        
+--------------------
+ 1.5707963267948966
+ 1.2626272556789118
+ 1.0038848218538872
+  0.808448792630022
+ 0.6657737500283538
+ 0.5609821161086238
+(6 rows)
+
+--Testcase 18:
+EXPLAIN VERBOSE
+SELECT ceil(value1) FROM s1 WHERE ceil(value1) > 0;
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=8)
+   Output: ceil(value1)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value1 FROM odbc_fdw_regress.s1 WHERE ((ceil(value1) > 0))
+(4 rows)
+
+--Testcase 19:
+SELECT ceil(value1) FROM s1 WHERE ceil(value1) > 0;
+ ceil 
+------
+    1
+    1
+    1
+    2
+    3
+    4
+(6 rows)
+
+--Testcase 20:
+EXPLAIN VERBOSE
+SELECT ceiling(value1) FROM s1 WHERE ceiling(value1) > 0;
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=8)
+   Output: ceiling(value1)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value1 FROM odbc_fdw_regress.s1 WHERE ((ceiling(value1) > 0))
+(4 rows)
+
+--Testcase 21:
+SELECT ceiling(value1) FROM s1 WHERE ceiling(value1) > 0;
+ ceiling 
+---------
+       1
+       1
+       1
+       2
+       3
+       4
+(6 rows)
+
+--Testcase 22:
+EXPLAIN VERBOSE
+SELECT cos(value1) FROM s1 WHERE cos(value1) > 0;
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=8)
+   Output: cos(value1)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value1 FROM odbc_fdw_regress.s1 WHERE ((cos(value1) > 0))
+(4 rows)
+
+--Testcase 23:
+SELECT cos(value1) FROM s1 WHERE cos(value1) > 0;
+        cos         
+--------------------
+ 0.9950041652780258
+ 0.9800665778412416
+  0.955336489125606
+ 0.4535961214255773
+(4 rows)
+
+--Testcase 24:
+EXPLAIN VERBOSE
+SELECT cot(value1) FROM s1 WHERE cot(value1) > 0;
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=8)
+   Output: cot(value1)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value1 FROM odbc_fdw_regress.s1 WHERE ((cot(value1) > 0))
+(4 rows)
+
+--Testcase 25:
+SELECT cot(value1) FROM s1 WHERE cot(value1) > 0;
+        cot         
+--------------------
+  9.966644423259238
+  4.933154875586893
+ 3.2327281437658275
+ 0.5089681052390643
+  6.259947539437359
+(5 rows)
+
+--Testcase 26:
+EXPLAIN VERBOSE
+SELECT degrees(value1) FROM s1 WHERE degrees(value1) > 0;
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=8)
+   Output: degrees(value1)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value1 FROM odbc_fdw_regress.s1 WHERE ((degrees(value1) > 0))
+(4 rows)
+
+--Testcase 27:
+SELECT degrees(value1) FROM s1 WHERE degrees(value1) > 0;
+      degrees       
+--------------------
+  5.729577951308232
+ 11.459155902616464
+ 17.188733853924695
+  63.02535746439056
+ 126.05071492878112
+ 189.07607239317164
+(6 rows)
+
+--Testcase 28:
+EXPLAIN VERBOSE
+SELECT exp(value1) FROM s1 WHERE exp(value1) > 0;
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=8)
+   Output: exp(value1)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value1 FROM odbc_fdw_regress.s1 WHERE ((exp(value1) > 0))
+(4 rows)
+
+--Testcase 29:
+SELECT exp(value1) FROM s1 WHERE exp(value1) > 0;
+        exp         
+--------------------
+ 1.1051709180756477
+ 1.2214027581601699
+ 1.3498588075760032
+ 3.0041660239464334
+  9.025013499434122
+ 27.112638920657883
+(6 rows)
+
+--Testcase 30:
+EXPLAIN VERBOSE
+SELECT floor(value1) FROM s1 WHERE floor(value1) > 0;
+                                    QUERY PLAN                                    
+----------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=8)
+   Output: floor(value1)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value1 FROM odbc_fdw_regress.s1 WHERE ((floor(value1) > 0))
+(4 rows)
+
+--Testcase 31:
+SELECT floor(value1) FROM s1 WHERE floor(value1) > 0;
+ floor 
+-------
+     1
+     2
+     3
+(3 rows)
+
+--Testcase 32:
+EXPLAIN VERBOSE
+SELECT ln(value1) FROM s1 WHERE ln(value1) > 0;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=8)
+   Output: ln(value1)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value1 FROM odbc_fdw_regress.s1 WHERE ((ln(value1) > 0))
+(4 rows)
+
+--Testcase 33:
+SELECT ln(value1) FROM s1 WHERE ln(value1) > 0;
+         ln          
+---------------------
+ 0.09531017980432493
+  0.7884573603642703
+  1.1939224684724346
+(3 rows)
+
+--Testcase 34:
+EXPLAIN VERBOSE
+SELECT value5, log(2, value5) FROM s1 WHERE log(2, value5) > 0;
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=64)
+   Output: value5, log('2'::numeric, value5)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value5 FROM odbc_fdw_regress.s1 WHERE ((log(2, value5) > 0))
+(4 rows)
+
+--Testcase 35:
+SELECT value5, log(2, value5) FROM s1 WHERE log(2, value5) > 0;
+ value5 |         log         
+--------+---------------------
+    1.1 | 0.13750352374993491
+    1.2 |  0.2630344058337938
+    1.3 |  0.3785116232537298
+(3 rows)
+
+--Testcase 37:
+EXPLAIN VERBOSE
+SELECT log(value1) FROM s1 WHERE log(value1) > 0; -- Does not push down
+                          QUERY PLAN                           
+---------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=8)
+   Output: log(value1)
+   Filter: (log(s1.value1) > '0'::double precision)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value1 FROM odbc_fdw_regress.s1
+(5 rows)
+
+--Testcase 38:
+SELECT log(value1) FROM s1 WHERE log(value1) > 0; -- Does not push down
+         log         
+---------------------
+ 0.04139268515822507
+  0.3424226808222063
+  0.5185139398778874
+(3 rows)
+
+--Testcase 39:
+EXPLAIN VERBOSE
+SELECT log10(value1) FROM s1 WHERE log10(value1) > 0;
+                                    QUERY PLAN                                    
+----------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=8)
+   Output: log10(value1)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value1 FROM odbc_fdw_regress.s1 WHERE ((log10(value1) > 0))
+(4 rows)
+
+--Testcase 40:
+SELECT log10(value1) FROM s1 WHERE log10(value1) > 0;
+        log10        
+---------------------
+ 0.04139268515822507
+  0.3424226808222063
+  0.5185139398778874
+(3 rows)
+
+--Testcase 41:
+EXPLAIN VERBOSE
+SELECT mod(value2, id + 1) FROM s1 WHERE mod(value2, id + 1) > 0;
+                                          QUERY PLAN                                          
+----------------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.03 rows=6 width=4)
+   Output: mod(value2, (id + 1))
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT id, value2 FROM odbc_fdw_regress.s1 WHERE ((mod(value2, (id + 1)) > 0))
+(4 rows)
+
+--Testcase 42:
+SELECT mod(value2, id + 1) FROM s1 WHERE mod(value2, id + 1) > 0;
+ mod 
+-----
+   1
+   2
+(2 rows)
+
+--Testcase 43:
+EXPLAIN VERBOSE
+SELECT pow(value2, id) FROM s1 WHERE pow(value2, id) > 0;
+                                       QUERY PLAN                                       
+----------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.05 rows=6 width=8)
+   Output: pow((value2)::double precision, (id)::double precision)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT id, value2 FROM odbc_fdw_regress.s1 WHERE ((pow(value2, id) > 0))
+(4 rows)
+
+--Testcase 44:
+SELECT pow(value2, id) FROM s1 WHERE pow(value2, id) > 0;
+     pow      
+--------------
+            1
+          100
+        10000
+      8000000
+   1600000000
+ 320000000000
+(6 rows)
+
+--Testcase 45:
+EXPLAIN VERBOSE
+SELECT power(value2, id) FROM s1 WHERE power(value2, id) > 0;
+                                        QUERY PLAN                                        
+------------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.05 rows=6 width=8)
+   Output: power((value2)::double precision, (id)::double precision)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT id, value2 FROM odbc_fdw_regress.s1 WHERE ((power(value2, id) > 0))
+(4 rows)
+
+--Testcase 46:
+SELECT power(value2, id) FROM s1 WHERE power(value2, id) > 0;
+    power     
+--------------
+            1
+          100
+        10000
+      8000000
+   1600000000
+ 320000000000
+(6 rows)
+
+--Testcase 47:
+EXPLAIN VERBOSE
+SELECT radians(value1) FROM s1 WHERE radians(value1) > 0;
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=8)
+   Output: radians(value1)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value1 FROM odbc_fdw_regress.s1 WHERE ((radians(value1) > 0))
+(4 rows)
+
+--Testcase 48:
+SELECT radians(value1) FROM s1 WHERE radians(value1) > 0;
+        radians        
+-----------------------
+ 0.0017453292519943296
+  0.003490658503988659
+  0.005235987755982988
+  0.019198621771937627
+  0.038397243543875255
+   0.05759586531581287
+(6 rows)
+
+--Testcase 49:
+EXPLAIN VERBOSE
+SELECT round(value1) FROM s1 WHERE round(value1) > 0;
+                                    QUERY PLAN                                    
+----------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=8)
+   Output: round(value1)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value1 FROM odbc_fdw_regress.s1 WHERE ((round(value1) > 0))
+(4 rows)
+
+--Testcase 50:
+SELECT round(value1) FROM s1 WHERE round(value1) > 0;
+ round 
+-------
+     1
+     2
+     3
+(3 rows)
+
+--Testcase 51:
+EXPLAIN VERBOSE
+SELECT sign(value3), value3 FROM s1 WHERE sign(value3) = -1;
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=16)
+   Output: sign(value3), value3
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value3 FROM odbc_fdw_regress.s1 WHERE ((sign(value3) = (-1)))
+(4 rows)
+
+--Testcase 52:
+SELECT sign(value3), value3 FROM s1 WHERE sign(value3) = -1;
+ sign | value3 
+------+--------
+   -1 |   -0.1
+   -1 |   -0.2
+   -1 |   -0.3
+   -1 |   -1.1
+   -1 |   -2.2
+   -1 |   -3.3
+(6 rows)
+
+--Testcase 53:
+EXPLAIN VERBOSE
+SELECT sin(value1) FROM s1 WHERE sin(value1) > 0;
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=8)
+   Output: sin(value1)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value1 FROM odbc_fdw_regress.s1 WHERE ((sin(value1) > 0))
+(4 rows)
+
+--Testcase 54:
+SELECT sin(value1) FROM s1 WHERE sin(value1) > 0;
+         sin         
+---------------------
+ 0.09983341664682815
+ 0.19866933079506122
+ 0.29552020666133955
+  0.8912073600614354
+  0.8084964038195901
+(5 rows)
+
+--Testcase 55:
+EXPLAIN VERBOSE
+SELECT sqrt(value1) FROM s1 WHERE sqrt(value1) > 0;
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=8)
+   Output: sqrt(value1)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value1 FROM odbc_fdw_regress.s1 WHERE ((sqrt(value1) > 0))
+(4 rows)
+
+--Testcase 56:
+SELECT sqrt(value1) FROM s1 WHERE sqrt(value1) > 0;
+        sqrt         
+---------------------
+ 0.31622776601683794
+  0.4472135954999579
+  0.5477225575051661
+  1.0488088481701516
+  1.4832396974191326
+   1.816590212458495
+(6 rows)
+
+--Testcase 57:
+EXPLAIN VERBOSE
+SELECT tan(value1) FROM s1 WHERE tan(value1) > 0;
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=8)
+   Output: tan(value1)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value1 FROM odbc_fdw_regress.s1 WHERE ((tan(value1) > 0))
+(4 rows)
+
+--Testcase 58:
+SELECT tan(value1) FROM s1 WHERE tan(value1) > 0;
+         tan         
+---------------------
+ 0.10033467208545055
+  0.2027100355086725
+ 0.30933624960962325
+  1.9647596572486523
+ 0.15974574766003222
+(5 rows)
+
+--Testcase 59:
+EXPLAIN VERBOSE
+SELECT round(value1) FROM s1 WHERE round(value1) > 0;
+                                    QUERY PLAN                                    
+----------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=8)
+   Output: round(value1)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value1 FROM odbc_fdw_regress.s1 WHERE ((round(value1) > 0))
+(4 rows)
+
+--Testcase 60:
+SELECT round(value1) FROM s1 WHERE round(value1) > 0;
+ round 
+-------
+     1
+     2
+     3
+(3 rows)
+
+-- date/time function:
+--Testcase 61:
+EXPLAIN VERBOSE
+SELECT date(c5) FROM tbl04 WHERE date(c5) > '1970-01-01';
+                                      QUERY PLAN                                       
+---------------------------------------------------------------------------------------
+ Foreign Scan on public.tbl04  (cost=25.00..34.02 rows=9 width=4)
+   Output: date(c5)
+   Foreign Table Size: 9 b
+   Remote SQL: SELECT c5 FROM odbc_fdw_regress.tbl04 WHERE ((date(c5) > '1970-01-01'))
+(4 rows)
+
+--Testcase 62:
+SELECT date(c5) FROM tbl04 WHERE date(c5) > '1970-01-01';
+    date    
+------------
+ 01-01-2000
+ 01-01-2000
+ 01-01-2000
+ 11-01-1990
+ 11-01-2010
+ 10-01-1999
+ 10-01-2010
+ 10-01-1999
+ 10-01-2010
+(9 rows)
+
+-- string function:
+--Testcase 63:
+EXPLAIN VERBOSE
+SELECT ascii(str1), ascii(str2) FROM s1 WHERE ascii(str1) > 0;
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.03 rows=6 width=8)
+   Output: ascii(str1), ascii(str2)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str1, str2 FROM odbc_fdw_regress.s1 WHERE ((ascii(str1) > 0))
+(4 rows)
+
+--Testcase 64:
+SELECT ascii(str1), ascii(str2) FROM s1 WHERE ascii(str1) > 0;
+ ascii | ascii 
+-------+-------
+    45 |    32
+    45 |    32
+    45 |    32
+    45 |    32
+    45 |    32
+    45 |    32
+(6 rows)
+
+--Testcase 65:
+-- for bit_length() function, postgre's core will optimize it to octet_length() * 8 and push it down
+EXPLAIN VERBOSE
+SELECT bit_length(str1), bit_length(str2) FROM s1 WHERE bit_length(str1) > 0;
+                                           QUERY PLAN                                            
+-------------------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.06 rows=6 width=8)
+   Output: (octet_length(str1) * 8), (octet_length(str2) * 8)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str1, str2 FROM odbc_fdw_regress.s1 WHERE (((octet_length(str1) * 8) > 0))
+(4 rows)
+
+--Testcase 66:
+SELECT bit_length(str1), bit_length(str2) FROM s1 WHERE bit_length(str1) > 0;
+ bit_length | bit_length 
+------------+------------
+         72 |         72
+         72 |         72
+         72 |         72
+         72 |         72
+         72 |         72
+         72 |         72
+(6 rows)
+
+--Testcase 67:
+EXPLAIN VERBOSE
+SELECT btrim(str2) FROM s1 WHERE btrim(str2) LIKE 'XYZ'; -- Does not push-down
+                           QUERY PLAN                           
+----------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=32)
+   Output: btrim(str2)
+   Filter: (btrim(s1.str2) ~~ 'XYZ'::text)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str2 FROM odbc_fdw_regress.s1
+(5 rows)
+
+--Testcase 68:
+SELECT btrim(str2) FROM s1 WHERE btrim(str2) LIKE 'XYZ'; -- Does not push-down
+ btrim 
+-------
+ XYZ
+ XYZ
+ XYZ
+ XYZ
+ XYZ
+ XYZ
+(6 rows)
+
+--Testcase 69:
+EXPLAIN VERBOSE
+SELECT btrim(str2, ' ') FROM s1 WHERE btrim(str2, ' ') LIKE 'XYZ'; -- Does not push-down
+                           QUERY PLAN                           
+----------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=32)
+   Output: btrim(str2, ' '::text)
+   Filter: (btrim(s1.str2, ' '::text) ~~ 'XYZ'::text)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str2 FROM odbc_fdw_regress.s1
+(5 rows)
+
+--Testcase 70:
+SELECT btrim(str2, ' ') FROM s1 WHERE btrim(str2, ' ') LIKE 'XYZ'; -- Does not push-down
+ btrim 
+-------
+ XYZ
+ XYZ
+ XYZ
+ XYZ
+ XYZ
+ XYZ
+(6 rows)
+
+--Testcase 71:
+EXPLAIN VERBOSE
+SELECT char_length(str1), char_length(str2) FROM s1 WHERE char_length(str1) > 0;
+                                        QUERY PLAN                                        
+------------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.03 rows=6 width=8)
+   Output: char_length(str1), char_length(str2)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str1, str2 FROM odbc_fdw_regress.s1 WHERE ((char_length(str1) > 0))
+(4 rows)
+
+--Testcase 72:
+SELECT char_length(str1), char_length(str2) FROM s1 WHERE char_length(str1) > 0;
+ char_length | char_length 
+-------------+-------------
+           9 |           9
+           9 |           9
+           9 |           9
+           9 |           9
+           9 |           9
+           9 |           9
+(6 rows)
+
+--Testcase 73:
+EXPLAIN VERBOSE
+SELECT character_length(str1), character_length(str2) FROM s1 WHERE character_length(str1) > 0;
+                                          QUERY PLAN                                           
+-----------------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.03 rows=6 width=8)
+   Output: character_length(str1), character_length(str2)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str1, str2 FROM odbc_fdw_regress.s1 WHERE ((character_length(str1) > 0))
+(4 rows)
+
+--Testcase 74:
+SELECT character_length(str1), character_length(str2) FROM s1 WHERE character_length(str1) > 0;
+ character_length | character_length 
+------------------+------------------
+                9 |                9
+                9 |                9
+                9 |                9
+                9 |                9
+                9 |                9
+                9 |                9
+(6 rows)
+
+--Testcase 75:
+EXPLAIN VERBOSE
+SELECT concat(str1, str2) FROM s1 WHERE concat(str1, str2) LIKE '---XYZ---   XYZ   ';
+                                                   QUERY PLAN                                                    
+-----------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=32)
+   Output: concat(str1, str2)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str1, str2 FROM odbc_fdw_regress.s1 WHERE ((concat(str1, str2) LIKE '---XYZ---   XYZ   '))
+(4 rows)
+
+--Testcase 76:
+SELECT concat(str1, str2) FROM s1 WHERE concat(str1, str2) LIKE '---XYZ---   XYZ   ';
+       concat       
+--------------------
+ ---XYZ---   XYZ   
+ ---XYZ---   XYZ   
+ ---XYZ---   XYZ   
+ ---XYZ---   XYZ   
+ ---XYZ---   XYZ   
+ ---XYZ---   XYZ   
+(6 rows)
+
+--Testcase 77:
+EXPLAIN VERBOSE
+SELECT concat_ws(',', str1, str2) FROM s1 WHERE concat_ws(',', str1, str2) LIKE '---XYZ---,   XYZ   ';
+                                                        QUERY PLAN                                                        
+--------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=32)
+   Output: concat_ws(','::text, str1, str2)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str1, str2 FROM odbc_fdw_regress.s1 WHERE ((concat_ws(',', str1, str2) LIKE '---XYZ---,   XYZ   '))
+(4 rows)
+
+--Testcase 78:
+SELECT concat_ws(',', str1, str2) FROM s1 WHERE concat_ws(',', str1, str2) LIKE '---XYZ---,   XYZ   ';
+      concat_ws      
+---------------------
+ ---XYZ---,   XYZ   
+ ---XYZ---,   XYZ   
+ ---XYZ---,   XYZ   
+ ---XYZ---,   XYZ   
+ ---XYZ---,   XYZ   
+ ---XYZ---,   XYZ   
+(6 rows)
+
+--Testcase 79:
+EXPLAIN VERBOSE
+SELECT left(str1, 3) FROM s1 WHERE left(str1, 3) LIKE '---';
+                                      QUERY PLAN                                       
+---------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=32)
+   Output: "left"(str1, 3)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str1 FROM odbc_fdw_regress.s1 WHERE ((left(str1, 3) LIKE '---'))
+(4 rows)
+
+--Testcase 80:
+SELECT left(str1, 3) FROM s1 WHERE left(str1, 3) LIKE '---';
+ left 
+------
+ ---
+ ---
+ ---
+ ---
+ ---
+ ---
+(6 rows)
+
+--Testcase 81:
+EXPLAIN VERBOSE
+SELECT length(str1), length(str2) FROM s1 WHERE length(str1) > 0;
+                                     QUERY PLAN                                      
+-------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.03 rows=6 width=8)
+   Output: length(str1), length(str2)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str1, str2 FROM odbc_fdw_regress.s1 WHERE ((length(str1) > 0))
+(4 rows)
+
+--Testcase 82:
+SELECT length(str1), length(str2) FROM s1 WHERE length(str1) > 0;
+ length | length 
+--------+--------
+      9 |      9
+      9 |      9
+      9 |      9
+      9 |      9
+      9 |      9
+      9 |      9
+(6 rows)
+
+--Testcase 83:
+EXPLAIN VERBOSE
+SELECT lower(str1), lower(str2) FROM s1 WHERE lower(str1) LIKE '%xyz%';
+                                         QUERY PLAN                                          
+---------------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.03 rows=6 width=64)
+   Output: lower(str1), lower(str2)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str1, str2 FROM odbc_fdw_regress.s1 WHERE ((lower(str1) LIKE '%xyz%'))
+(4 rows)
+
+--Testcase 84:
+SELECT lower(str1), lower(str2) FROM s1 WHERE lower(str1) LIKE '%xyz%';
+   lower   |   lower   
+-----------+-----------
+ ---xyz--- |    xyz   
+ ---xyz--- |    xyz   
+ ---xyz--- |    xyz   
+ ---xyz--- |    xyz   
+ ---xyz--- |    xyz   
+ ---xyz--- |    xyz   
+(6 rows)
+
+--Testcase 85:
+EXPLAIN VERBOSE
+SELECT lpad(str1, 20, 'ABCD'), lpad(str2, 20, 'ABCD') FROM s1 WHERE lpad(str1, 20, 'ABCD') LIKE '%XYZ%';
+                                               QUERY PLAN                                               
+--------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.03 rows=6 width=64)
+   Output: lpad(str1, 20, 'ABCD'::text), lpad(str2, 20, 'ABCD'::text)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str1, str2 FROM odbc_fdw_regress.s1 WHERE ((lpad(str1, 20, 'ABCD') LIKE '%XYZ%'))
+(4 rows)
+
+--Testcase 86:
+SELECT lpad(str1, 20, 'ABCD'), lpad(str2, 20, 'ABCD') FROM s1 WHERE lpad(str1, 20, 'ABCD') LIKE '%XYZ%';
+         lpad         |         lpad         
+----------------------+----------------------
+ ABCDABCDABC---XYZ--- | ABCDABCDABC   XYZ   
+ ABCDABCDABC---XYZ--- | ABCDABCDABC   XYZ   
+ ABCDABCDABC---XYZ--- | ABCDABCDABC   XYZ   
+ ABCDABCDABC---XYZ--- | ABCDABCDABC   XYZ   
+ ABCDABCDABC---XYZ--- | ABCDABCDABC   XYZ   
+ ABCDABCDABC---XYZ--- | ABCDABCDABC   XYZ   
+(6 rows)
+
+--Testcase 87:
+EXPLAIN VERBOSE
+SELECT ltrim(str2) FROM s1 WHERE ltrim(str2) LIKE 'XYZ   '; -- Does not push-down
+                           QUERY PLAN                           
+----------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=32)
+   Output: ltrim(str2)
+   Filter: (ltrim(s1.str2) ~~ 'XYZ   '::text)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str2 FROM odbc_fdw_regress.s1
+(5 rows)
+
+--Testcase 88:
+SELECT ltrim(str2) FROM s1 WHERE ltrim(str2) LIKE 'XYZ   '; -- Does not push-down
+ ltrim  
+--------
+ XYZ   
+ XYZ   
+ XYZ   
+ XYZ   
+ XYZ   
+ XYZ   
+(6 rows)
+
+--Testcase 89:
+EXPLAIN VERBOSE
+SELECT ltrim(str2, ' ') FROM s1 WHERE ltrim(str2, ' ') LIKE 'XYZ   '; -- Does not push-down
+                           QUERY PLAN                           
+----------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=32)
+   Output: ltrim(str2, ' '::text)
+   Filter: (ltrim(s1.str2, ' '::text) ~~ 'XYZ   '::text)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str2 FROM odbc_fdw_regress.s1
+(5 rows)
+
+--Testcase 90:
+SELECT ltrim(str2, ' ') FROM s1 WHERE ltrim(str2, ' ') LIKE 'XYZ   '; -- Does not push-down
+ ltrim  
+--------
+ XYZ   
+ XYZ   
+ XYZ   
+ XYZ   
+ XYZ   
+ XYZ   
+(6 rows)
+
+--Testcase 91:
+EXPLAIN VERBOSE
+SELECT octet_length(str1), octet_length(str2) FROM s1 WHERE octet_length(str1) > 0;
+                                        QUERY PLAN                                         
+-------------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.03 rows=6 width=8)
+   Output: octet_length(str1), octet_length(str2)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str1, str2 FROM odbc_fdw_regress.s1 WHERE ((octet_length(str1) > 0))
+(4 rows)
+
+--Testcase 92:
+SELECT octet_length(str1), octet_length(str2) FROM s1 WHERE octet_length(str1) > 0;
+ octet_length | octet_length 
+--------------+--------------
+            9 |            9
+            9 |            9
+            9 |            9
+            9 |            9
+            9 |            9
+            9 |            9
+(6 rows)
+
+--Testcase 93:
+EXPLAIN VERBOSE
+SELECT position('X' IN str1) FROM s1 WHERE position('X' IN str1) > 0;
+                                       QUERY PLAN                                       
+----------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=4)
+   Output: POSITION(('X'::text) IN (str1))
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str1 FROM odbc_fdw_regress.s1 WHERE ((position('X' IN str1) > 0))
+(4 rows)
+
+--Testcase 94:
+SELECT position('X' IN str1) FROM s1 WHERE position('X' IN str1) > 0;
+ position 
+----------
+        4
+        4
+        4
+        4
+        4
+        4
+(6 rows)
+
+--Testcase 95:
+EXPLAIN VERBOSE
+SELECT regexp_replace(str1, 'X..', 'xyz') FROM s1 WHERE regexp_replace(str1, 'X..', 'xyz') LIKE '%xyz%';
+                                                  QUERY PLAN                                                  
+--------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=32)
+   Output: regexp_replace(str1, 'X..'::text, 'xyz'::text)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str1 FROM odbc_fdw_regress.s1 WHERE ((regexp_replace(str1, 'X..', 'xyz') LIKE '%xyz%'))
+(4 rows)
+
+--Testcase 96:
+SELECT regexp_replace(str1, 'X..', 'xyz') FROM s1 WHERE regexp_replace(str1, 'X..', 'xyz') LIKE '%xyz%';
+ regexp_replace 
+----------------
+ ---xyz---
+ ---xyz---
+ ---xyz---
+ ---xyz---
+ ---xyz---
+ ---xyz---
+(6 rows)
+
+--Testcase 97:
+EXPLAIN VERBOSE
+SELECT regexp_replace(str1, '[Y]', 'y', 'i') FROM s1 WHERE regexp_replace(str1, '[Y]', 'y', 'i') LIKE '%XyZ%';
+                                       QUERY PLAN                                        
+-----------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=32)
+   Output: regexp_replace(str1, '[Y]'::text, 'y'::text, 'i'::text)
+   Filter: (regexp_replace(s1.str1, '[Y]'::text, 'y'::text, 'i'::text) ~~ '%XyZ%'::text)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str1 FROM odbc_fdw_regress.s1
+(5 rows)
+
+--Testcase 98:
+SELECT regexp_replace(str1, '[Y]', 'y', 'i') FROM s1 WHERE regexp_replace(str1, '[Y]', 'y', 'i') LIKE '%XyZ%';
+ regexp_replace 
+----------------
+ ---XyZ---
+ ---XyZ---
+ ---XyZ---
+ ---XyZ---
+ ---XyZ---
+ ---XyZ---
+(6 rows)
+
+--Testcase 99:
+EXPLAIN VERBOSE
+SELECT repeat(str1, 3), repeat(str2, 3) FROM s1 WHERE repeat(str2, 3) LIKE '%X%';
+                                          QUERY PLAN                                           
+-----------------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.03 rows=6 width=64)
+   Output: repeat(str1, 3), repeat(str2, 3)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str1, str2 FROM odbc_fdw_regress.s1 WHERE ((repeat(str2, 3) LIKE '%X%'))
+(4 rows)
+
+--Testcase 100:
+SELECT repeat(str1, 3), repeat(str2, 3) FROM s1 WHERE repeat(str2, 3) LIKE '%X%';
+           repeat            |           repeat            
+-----------------------------+-----------------------------
+ ---XYZ------XYZ------XYZ--- |    XYZ      XYZ      XYZ   
+ ---XYZ------XYZ------XYZ--- |    XYZ      XYZ      XYZ   
+ ---XYZ------XYZ------XYZ--- |    XYZ      XYZ      XYZ   
+ ---XYZ------XYZ------XYZ--- |    XYZ      XYZ      XYZ   
+ ---XYZ------XYZ------XYZ--- |    XYZ      XYZ      XYZ   
+ ---XYZ------XYZ------XYZ--- |    XYZ      XYZ      XYZ   
+(6 rows)
+
+--Testcase 101:
+EXPLAIN VERBOSE
+SELECT replace(str1, 'XYZ', 'ABC') FROM s1 WHERE replace(str1, 'XYZ', 'ABC') LIKE '%A%';
+                                             QUERY PLAN                                              
+-----------------------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=32)
+   Output: replace(str1, 'XYZ'::text, 'ABC'::text)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str1 FROM odbc_fdw_regress.s1 WHERE ((replace(str1, 'XYZ', 'ABC') LIKE '%A%'))
+(4 rows)
+
+--Testcase 102:
+SELECT replace(str1, 'XYZ', 'ABC') FROM s1 WHERE replace(str1, 'XYZ', 'ABC') LIKE '%A%';
+  replace  
+-----------
+ ---ABC---
+ ---ABC---
+ ---ABC---
+ ---ABC---
+ ---ABC---
+ ---ABC---
+(6 rows)
+
+--Testcase 103:
+EXPLAIN VERBOSE
+SELECT reverse(str1), reverse(str2) FROM s1 WHERE reverse(str1) LIKE '%ZYX%';
+                                          QUERY PLAN                                           
+-----------------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.03 rows=6 width=64)
+   Output: reverse(str1), reverse(str2)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str1, str2 FROM odbc_fdw_regress.s1 WHERE ((reverse(str1) LIKE '%ZYX%'))
+(4 rows)
+
+--Testcase 104:
+SELECT reverse(str1), reverse(str2) FROM s1 WHERE reverse(str1) LIKE '%ZYX%';
+  reverse  |  reverse  
+-----------+-----------
+ ---ZYX--- |    ZYX   
+ ---ZYX--- |    ZYX   
+ ---ZYX--- |    ZYX   
+ ---ZYX--- |    ZYX   
+ ---ZYX--- |    ZYX   
+ ---ZYX--- |    ZYX   
+(6 rows)
+
+--Testcase 105:
+EXPLAIN VERBOSE
+SELECT right(str1, 4), right(str2, 4) FROM s1 WHERE right(str1, 4) LIKE 'Z%';
+                                         QUERY PLAN                                          
+---------------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.03 rows=6 width=64)
+   Output: "right"(str1, 4), "right"(str2, 4)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str1, str2 FROM odbc_fdw_regress.s1 WHERE ((right(str1, 4) LIKE 'Z%'))
+(4 rows)
+
+--Testcase 106:
+SELECT right(str1, 4), right(str2, 4) FROM s1 WHERE right(str1, 4) LIKE 'Z%';
+ right | right 
+-------+-------
+ Z---  | Z   
+ Z---  | Z   
+ Z---  | Z   
+ Z---  | Z   
+ Z---  | Z   
+ Z---  | Z   
+(6 rows)
+
+--Testcase 107:
+EXPLAIN VERBOSE
+SELECT rpad(str1, 16, str2), rpad(str1, 4, str2) FROM s1 WHERE rpad(str1, 16, str2) LIKE '---XYZ---%';
+                                                QUERY PLAN                                                 
+-----------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.03 rows=6 width=64)
+   Output: rpad(str1, 16, str2), rpad(str1, 4, str2)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str1, str2 FROM odbc_fdw_regress.s1 WHERE ((rpad(str1, 16, str2) LIKE '---XYZ---%'))
+(4 rows)
+
+--Testcase 108:
+SELECT rpad(str1, 16, str2), rpad(str1, 4, str2) FROM s1 WHERE rpad(str1, 16, str2) LIKE '---XYZ---%';
+       rpad       | rpad 
+------------------+------
+ ---XYZ---   XYZ  | ---X
+ ---XYZ---   XYZ  | ---X
+ ---XYZ---   XYZ  | ---X
+ ---XYZ---   XYZ  | ---X
+ ---XYZ---   XYZ  | ---X
+ ---XYZ---   XYZ  | ---X
+(6 rows)
+
+--Testcase 109:
+EXPLAIN VERBOSE
+SELECT rtrim(str2) FROM s1 WHERE rtrim(str2) LIKE '%XYZ'; -- Does not push-down
+                           QUERY PLAN                           
+----------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=32)
+   Output: rtrim(str2)
+   Filter: (rtrim(s1.str2) ~~ '%XYZ'::text)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str2 FROM odbc_fdw_regress.s1
+(5 rows)
+
+--Testcase 110:
+SELECT rtrim(str2) FROM s1 WHERE rtrim(str2) LIKE '%XYZ'; -- Does not push-down
+ rtrim  
+--------
+    XYZ
+    XYZ
+    XYZ
+    XYZ
+    XYZ
+    XYZ
+(6 rows)
+
+--Testcase 111:
+EXPLAIN VERBOSE
+SELECT rtrim(str2, ' ') FROM s1 WHERE rtrim(str2, ' ') LIKE '%XYZ'; -- Does not push-down
+                           QUERY PLAN                           
+----------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=32)
+   Output: rtrim(str2, ' '::text)
+   Filter: (rtrim(s1.str2, ' '::text) ~~ '%XYZ'::text)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str2 FROM odbc_fdw_regress.s1
+(5 rows)
+
+--Testcase 112:
+SELECT rtrim(str2, ' ') FROM s1 WHERE rtrim(str2, ' ') LIKE '%XYZ'; -- Does not push-down
+ rtrim  
+--------
+    XYZ
+    XYZ
+    XYZ
+    XYZ
+    XYZ
+    XYZ
+(6 rows)
+
+--Testcase 113:
+EXPLAIN VERBOSE
+SELECT substr(str1, 3) FROM s1 WHERE substr(str1, 3) LIKE '-XYZ---';
+                                         QUERY PLAN                                          
+---------------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=32)
+   Output: substr(str1, 3)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str1 FROM odbc_fdw_regress.s1 WHERE ((substr(str1, 3) LIKE '-XYZ---'))
+(4 rows)
+
+--Testcase 114:
+SELECT substr(str1, 3) FROM s1 WHERE substr(str1, 3) LIKE '-XYZ---';
+ substr  
+---------
+ -XYZ---
+ -XYZ---
+ -XYZ---
+ -XYZ---
+ -XYZ---
+ -XYZ---
+(6 rows)
+
+--Testcase 115:
+EXPLAIN VERBOSE
+SELECT substr(str2, 3, 4) FROM s1 WHERE substr(str2, 3, 4) LIKE ' XYZ';
+                                         QUERY PLAN                                          
+---------------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=32)
+   Output: substr(str2, 3, 4)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str2 FROM odbc_fdw_regress.s1 WHERE ((substr(str2, 3, 4) LIKE ' XYZ'))
+(4 rows)
+
+--Testcase 116:
+SELECT substr(str2, 3, 4) FROM s1 WHERE substr(str2, 3, 4) LIKE ' XYZ';
+ substr 
+--------
+  XYZ
+  XYZ
+  XYZ
+  XYZ
+  XYZ
+  XYZ
+(6 rows)
+
+--Testcase 117:
+EXPLAIN VERBOSE
+SELECT substring(str1, 3) FROM s1 WHERE substring(str1, 3) LIKE '-XYZ---';
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=32)
+   Output: "substring"(str1, 3)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str1 FROM odbc_fdw_regress.s1 WHERE ((substring(str1, 3) LIKE '-XYZ---'))
+(4 rows)
+
+--Testcase 118:
+SELECT substring(str1, 3) FROM s1 WHERE substring(str1, 3) LIKE '-XYZ---';
+ substring 
+-----------
+ -XYZ---
+ -XYZ---
+ -XYZ---
+ -XYZ---
+ -XYZ---
+ -XYZ---
+(6 rows)
+
+--Testcase 119:
+EXPLAIN VERBOSE
+SELECT substring(str2, 3, 4) FROM s1 WHERE substring(str2, 3, 4) LIKE ' XYZ';
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=32)
+   Output: "substring"(str2, 3, 4)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str2 FROM odbc_fdw_regress.s1 WHERE ((substring(str2, 3, 4) LIKE ' XYZ'))
+(4 rows)
+
+--Testcase 120:
+SELECT substring(str2, 3, 4) FROM s1 WHERE substring(str2, 3, 4) LIKE ' XYZ';
+ substring 
+-----------
+  XYZ
+  XYZ
+  XYZ
+  XYZ
+  XYZ
+  XYZ
+(6 rows)
+
+--Testcase 121:
+EXPLAIN VERBOSE
+SELECT substring(str1 FROM 3) FROM s1 WHERE substring(str1 FROM 3) LIKE '-XYZ---';
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=32)
+   Output: SUBSTRING(str1 FROM 3)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str1 FROM odbc_fdw_regress.s1 WHERE ((substring(str1, 3) LIKE '-XYZ---'))
+(4 rows)
+
+--Testcase 122:
+SELECT substring(str1 FROM 3) FROM s1 WHERE substring(str1 FROM 3) LIKE '-XYZ---';
+ substring 
+-----------
+ -XYZ---
+ -XYZ---
+ -XYZ---
+ -XYZ---
+ -XYZ---
+ -XYZ---
+(6 rows)
+
+--Testcase 123:
+EXPLAIN VERBOSE
+SELECT substring(str2 FROM 3 FOR 4) FROM s1 WHERE substring(str2 FROM 3 FOR 4) LIKE ' XYZ';
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=32)
+   Output: SUBSTRING(str2 FROM 3 FOR 4)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str2 FROM odbc_fdw_regress.s1 WHERE ((substring(str2, 3, 4) LIKE ' XYZ'))
+(4 rows)
+
+--Testcase 124:
+SELECT substring(str2 FROM 3 FOR 4) FROM s1 WHERE substring(str2 FROM 3 FOR 4) LIKE ' XYZ';
+ substring 
+-----------
+  XYZ
+  XYZ
+  XYZ
+  XYZ
+  XYZ
+  XYZ
+(6 rows)
+
+--Testcase 125:
+EXPLAIN VERBOSE
+SELECT trim(str2) FROM s1 WHERE trim(str2) LIKE 'XYZ'; -- Does not push-down
+                           QUERY PLAN                           
+----------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=32)
+   Output: TRIM(BOTH FROM str2)
+   Filter: (TRIM(BOTH FROM s1.str2) ~~ 'XYZ'::text)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str2 FROM odbc_fdw_regress.s1
+(5 rows)
+
+--Testcase 126:
+SELECT trim(str2) FROM s1 WHERE trim(str2) LIKE 'XYZ'; -- Does not push-down
+ btrim 
+-------
+ XYZ
+ XYZ
+ XYZ
+ XYZ
+ XYZ
+ XYZ
+(6 rows)
+
+--Testcase 127:
+EXPLAIN VERBOSE
+SELECT trim('-' FROM str1) FROM s1 WHERE trim('-' FROM str1) LIKE 'XYZ'; -- Does not push-down
+                           QUERY PLAN                           
+----------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=32)
+   Output: TRIM(BOTH '-'::text FROM str1)
+   Filter: (TRIM(BOTH '-'::text FROM s1.str1) ~~ 'XYZ'::text)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str1 FROM odbc_fdw_regress.s1
+(5 rows)
+
+--Testcase 128:
+SELECT trim('-' FROM str1) FROM s1 WHERE trim('-' FROM str1) LIKE 'XYZ'; -- Does not push-down
+ btrim 
+-------
+ XYZ
+ XYZ
+ XYZ
+ XYZ
+ XYZ
+ XYZ
+(6 rows)
+
+--Testcase 129:
+EXPLAIN VERBOSE
+SELECT trim(LEADING '-' FROM str1) FROM s1 WHERE trim(LEADING '-' FROM str1) LIKE 'XYZ---'; -- Does not push-down
+                             QUERY PLAN                             
+--------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=32)
+   Output: TRIM(LEADING '-'::text FROM str1)
+   Filter: (TRIM(LEADING '-'::text FROM s1.str1) ~~ 'XYZ---'::text)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str1 FROM odbc_fdw_regress.s1
+(5 rows)
+
+--Testcase 130:
+SELECT trim(LEADING '-' FROM str1) FROM s1 WHERE trim(LEADING '-' FROM str1) LIKE 'XYZ---'; -- Does not push-down
+ ltrim  
+--------
+ XYZ---
+ XYZ---
+ XYZ---
+ XYZ---
+ XYZ---
+ XYZ---
+(6 rows)
+
+--Testcase 131:
+EXPLAIN VERBOSE
+SELECT trim(BOTH '-' FROM str1) FROM s1 WHERE trim(BOTH '-' FROM str1) LIKE 'XYZ'; -- Does not push-down
+                           QUERY PLAN                           
+----------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=32)
+   Output: TRIM(BOTH '-'::text FROM str1)
+   Filter: (TRIM(BOTH '-'::text FROM s1.str1) ~~ 'XYZ'::text)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str1 FROM odbc_fdw_regress.s1
+(5 rows)
+
+--Testcase 132:
+SELECT trim(BOTH '-' FROM str1) FROM s1 WHERE trim(BOTH '-' FROM str1) LIKE 'XYZ'; -- Does not push-down
+ btrim 
+-------
+ XYZ
+ XYZ
+ XYZ
+ XYZ
+ XYZ
+ XYZ
+(6 rows)
+
+--Testcase 133:
+EXPLAIN VERBOSE
+SELECT trim(TRAILING '-' FROM str1) FROM s1 WHERE trim(TRAILING '-' FROM str1) LIKE '---XYZ'; -- Does not push-down
+                             QUERY PLAN                              
+---------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=32)
+   Output: TRIM(TRAILING '-'::text FROM str1)
+   Filter: (TRIM(TRAILING '-'::text FROM s1.str1) ~~ '---XYZ'::text)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT str1 FROM odbc_fdw_regress.s1
+(5 rows)
+
+--Testcase 134:
+SELECT trim(TRAILING '-' FROM str1) FROM s1 WHERE trim(TRAILING '-' FROM str1) LIKE '---XYZ'; -- Does not push-down
+ rtrim  
+--------
+ ---XYZ
+ ---XYZ
+ ---XYZ
+ ---XYZ
+ ---XYZ
+ ---XYZ
+(6 rows)
+
+--Testcase 135:
+EXPLAIN VERBOSE
+SELECT upper(tag1) FROM s1 WHERE upper(tag1) LIKE 'A';
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=32)
+   Output: upper(tag1)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT tag1 FROM odbc_fdw_regress.s1 WHERE ((upper(tag1) LIKE 'A'))
+(4 rows)
+
+--Testcase 136:
+SELECT upper(tag1) FROM s1 WHERE upper(tag1) LIKE 'A';
+ upper 
+-------
+ A
+ A
+ A
+(3 rows)
+
+-- explicit cast function:
+--Testcase 137:
+EXPLAIN VERBOSE
+SELECT cos(value1::decimal), value1::decimal FROM s1 WHERE cos(value1::decimal) > 0; -- Does not push down
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.06 rows=6 width=40)
+   Output: cos(((value1)::numeric)::double precision), (value1)::numeric
+   Filter: (cos(((s1.value1)::numeric)::double precision) > '0'::double precision)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value1 FROM odbc_fdw_regress.s1
+(5 rows)
+
+--Testcase 138:
+SELECT cos(value1::decimal), value1::decimal FROM s1 WHERE cos(value1::decimal) > 0; -- Does not push down
+        cos         | value1 
+--------------------+--------
+ 0.9950041652780258 |    0.1
+ 0.9800665778412416 |    0.2
+  0.955336489125606 |    0.3
+ 0.4535961214255773 |    1.1
+(4 rows)
+
+--Testcase 139:
+EXPLAIN VERBOSE
+SELECT cos(value1::decimal(10,0)), value1::decimal(10,0) FROM s1 WHERE cos(value1::decimal(10,0)) > 0; -- Does not push down
+                                       QUERY PLAN                                        
+-----------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.09 rows=6 width=24)
+   Output: cos(((value1)::numeric(10,0))::double precision), (value1)::numeric(10,0)
+   Filter: (cos(((s1.value1)::numeric(10,0))::double precision) > '0'::double precision)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value1 FROM odbc_fdw_regress.s1
+(5 rows)
+
+--Testcase 140:
+SELECT cos(value1::decimal(10,0)), value1::decimal(10,0) FROM s1 WHERE cos(value1::decimal(10,0)) > 0; -- Does not push down
+        cos         | value1 
+--------------------+--------
+                  1 |      0
+                  1 |      0
+                  1 |      0
+ 0.5403023058681398 |      1
+(4 rows)
+
+--Testcase 141:
+EXPLAIN VERBOSE
+SELECT cos(value1::numeric), value1::numeric FROM s1 WHERE cos(value1::numeric) > 0; -- Does not push down
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.06 rows=6 width=40)
+   Output: cos(((value1)::numeric)::double precision), (value1)::numeric
+   Filter: (cos(((s1.value1)::numeric)::double precision) > '0'::double precision)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value1 FROM odbc_fdw_regress.s1
+(5 rows)
+
+--Testcase 142:
+SELECT cos(value1::numeric), value1::numeric FROM s1 WHERE cos(value1::numeric) > 0; -- Does not push down
+        cos         | value1 
+--------------------+--------
+ 0.9950041652780258 |    0.1
+ 0.9800665778412416 |    0.2
+  0.955336489125606 |    0.3
+ 0.4535961214255773 |    1.1
+(4 rows)
+
+--Testcase 143:
+EXPLAIN VERBOSE
+SELECT cos(value1::numeric(10,1)), value1::numeric(10,1) FROM s1 WHERE cos(value1::numeric(10,1)) > 0; -- Does not push down
+                                       QUERY PLAN                                        
+-----------------------------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.09 rows=6 width=24)
+   Output: cos(((value1)::numeric(10,1))::double precision), (value1)::numeric(10,1)
+   Filter: (cos(((s1.value1)::numeric(10,1))::double precision) > '0'::double precision)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value1 FROM odbc_fdw_regress.s1
+(5 rows)
+
+--Testcase 144:
+SELECT cos(value1::numeric(10,1)), value1::numeric(10,1) FROM s1 WHERE cos(value1::numeric(10,1)) > 0; -- Does not push down
+        cos         | value1 
+--------------------+--------
+ 0.9950041652780258 |    0.1
+ 0.9800665778412416 |    0.2
+  0.955336489125606 |    0.3
+ 0.4535961214255773 |    1.1
+(4 rows)
+
+--Testcase 145:
+EXPLAIN VERBOSE
+SELECT value2::char FROM s1 WHERE value2::char LIKE '1'; -- Does not push down
+                          QUERY PLAN                           
+---------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.05 rows=6 width=8)
+   Output: (value2)::character(1)
+   Filter: ((s1.value2)::character(1) ~~ '1'::text)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value2 FROM odbc_fdw_regress.s1
+(5 rows)
+
+--Testcase 146:
+SELECT value2::char FROM s1 WHERE value2::char LIKE '1'; -- Does not push down
+ value2 
+--------
+ 1
+ 1
+ 1
+(3 rows)
+
+--Testcase 147:
+EXPLAIN VERBOSE
+SELECT value2::varchar FROM s1 WHERE value2::varchar LIKE '100'; -- Does not push down
+                            QUERY PLAN                             
+-------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.03 rows=6 width=32)
+   Output: (value2)::character varying
+   Filter: (((s1.value2)::character varying)::text ~~ '100'::text)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value2 FROM odbc_fdw_regress.s1
+(5 rows)
+
+--Testcase 148:
+SELECT value2::varchar FROM s1 WHERE value2::varchar LIKE '100'; -- Does not push down
+ value2 
+--------
+ 100
+ 100
+ 100
+(3 rows)
+
+--Testcase 149:
+EXPLAIN VERBOSE
+SELECT value2::char(6) FROM s1 WHERE value2::char(6) LIKE '100   '; -- Does not push down
+                           QUERY PLAN                           
+----------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.05 rows=6 width=28)
+   Output: (value2)::character(6)
+   Filter: ((s1.value2)::character(6) ~~ '100   '::text)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value2 FROM odbc_fdw_regress.s1
+(5 rows)
+
+--Testcase 150:
+SELECT value2::char(6) FROM s1 WHERE value2::char(6) LIKE '100   '; -- Does not push down
+ value2 
+--------
+ 100   
+ 100   
+ 100   
+(3 rows)
+
+--Testcase 151:
+EXPLAIN VERBOSE
+SELECT value2::varchar(6) FROM s1 WHERE value2::varchar(6) LIKE '100'; -- Does not push down
+                              QUERY PLAN                              
+----------------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.05 rows=6 width=28)
+   Output: (value2)::character varying(6)
+   Filter: (((s1.value2)::character varying(6))::text ~~ '100'::text)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value2 FROM odbc_fdw_regress.s1
+(5 rows)
+
+--Testcase 152:
+SELECT value2::varchar(6) FROM s1 WHERE value2::varchar(6) LIKE '100'; -- Does not push down
+ value2 
+--------
+ 100
+ 100
+ 100
+(3 rows)
+
+--Testcase 153:
+EXPLAIN VERBOSE
+SELECT value2::text FROM s1 WHERE value2::text LIKE '100'; -- Does not push down
+                           QUERY PLAN                           
+----------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.03 rows=6 width=32)
+   Output: (value2)::text
+   Filter: ((s1.value2)::text ~~ '100'::text)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value2 FROM odbc_fdw_regress.s1
+(5 rows)
+
+--Testcase 154:
+SELECT value2::text FROM s1 WHERE value2::text LIKE '100'; -- Does not push down
+ value2 
+--------
+ 100
+ 100
+ 100
+(3 rows)
+
+--Testcase 155:
+EXPLAIN VERBOSE
+SELECT value2::smallint FROM s1 WHERE value2::smallint > 20; -- Does not push down
+                          QUERY PLAN                           
+---------------------------------------------------------------
+ Foreign Scan on public.s1  (cost=25.00..31.02 rows=6 width=2)
+   Output: (value2)::smallint
+   Filter: ((s1.value2)::smallint > 20)
+   Foreign Table Size: 6 b
+   Remote SQL: SELECT value2 FROM odbc_fdw_regress.s1
+(5 rows)
+
+--Testcase 156:
+SELECT value2::smallint FROM s1 WHERE value2::smallint > 20; -- Does not push down
+ value2 
+--------
+    100
+    100
+    100
+    200
+    200
+    200
+(6 rows)
+
+--Testcase 157:
+EXPLAIN VERBOSE
+SELECT c1::int FROM tbl04 WHERE c1::int > 20; -- Does not push down
+                            QUERY PLAN                            
+------------------------------------------------------------------
+ Foreign Scan on public.tbl04  (cost=25.00..34.02 rows=9 width=4)
+   Output: (c1)::integer
+   Filter: ((tbl04.c1)::integer > 20)
+   Foreign Table Size: 9 b
+   Remote SQL: SELECT c1 FROM odbc_fdw_regress.tbl04
+(5 rows)
+
+--Testcase 158:
+SELECT c1::int FROM tbl04 WHERE c1::int > 20; -- Does not push down
+  c1   
+-------
+    31
+  2566
+    55
+ 45021
+   122
+    75
+  6867
+(7 rows)
+
+--Testcase 159:
+EXPLAIN VERBOSE
+SELECT c2::double precision FROM tbl04 WHERE c2::double precision > 20; -- Does not push down
+                            QUERY PLAN                             
+-------------------------------------------------------------------
+ Foreign Scan on public.tbl04  (cost=25.00..34.02 rows=9 width=8)
+   Output: (c2)::double precision
+   Filter: ((tbl04.c2)::double precision > '20'::double precision)
+   Foreign Table Size: 9 b
+   Remote SQL: SELECT c2 FROM odbc_fdw_regress.tbl04
+(5 rows)
+
+--Testcase 160:
+SELECT c2::double precision FROM tbl04 WHERE c2::double precision > 20; -- Does not push down
+   c2    
+---------
+  128912
+    6565
+ 1829812
+     523
+   22342
+    2121
+   23241
+     316
+    8916
+(9 rows)
+
+--Testcase 161:
+EXPLAIN VERBOSE
+SELECT c2::real FROM tbl04 WHERE c2::real > 20;
+                                     QUERY PLAN                                      
+-------------------------------------------------------------------------------------
+ Foreign Scan on public.tbl04  (cost=25.00..34.02 rows=9 width=4)
+   Output: (c2)::real
+   Foreign Table Size: 9 b
+   Remote SQL: SELECT c2 FROM odbc_fdw_regress.tbl04 WHERE ((CAST(c2 AS real) > 20))
+(4 rows)
+
+--Testcase 162:
+SELECT c2::real FROM tbl04 WHERE c2::real > 20;
+      c2      
+--------------
+       128912
+         6565
+ 1.829812e+06
+          523
+        22342
+         2121
+        23241
+          316
+         8916
+(9 rows)
+
+--Testcase 163:
+EXPLAIN VERBOSE
+SELECT c2::float4 FROM tbl04 WHERE c2::float4 > 20;
+                                     QUERY PLAN                                      
+-------------------------------------------------------------------------------------
+ Foreign Scan on public.tbl04  (cost=25.00..34.02 rows=9 width=4)
+   Output: (c2)::real
+   Foreign Table Size: 9 b
+   Remote SQL: SELECT c2 FROM odbc_fdw_regress.tbl04 WHERE ((CAST(c2 AS real) > 20))
+(4 rows)
+
+--Testcase 164:
+SELECT c2::float4 FROM tbl04 WHERE c2::float4 > 20;
+      c2      
+--------------
+       128912
+         6565
+ 1.829812e+06
+          523
+        22342
+         2121
+        23241
+          316
+         8916
+(9 rows)
+
+--Testcase 165:
+EXPLAIN VERBOSE
+SELECT c5::date FROM tbl04 WHERE c5::date > '2001-01-01'::date;
+                                          QUERY PLAN                                           
+-----------------------------------------------------------------------------------------------
+ Foreign Scan on public.tbl04  (cost=25.00..34.02 rows=9 width=4)
+   Output: (c5)::date
+   Foreign Table Size: 9 b
+   Remote SQL: SELECT c5 FROM odbc_fdw_regress.tbl04 WHERE ((CAST(c5 AS date) > '2001-01-01'))
+(4 rows)
+
+--Testcase 166:
+SELECT c5::date FROM tbl04 WHERE c5::date > '2001-01-01'::date;
+     c5     
+------------
+ 11-01-2010
+ 10-01-2010
+ 10-01-2010
+(3 rows)
+
+--Testcase 167:
+EXPLAIN VERBOSE
+SELECT c5::time FROM tbl04 WHERE c5::time > '00:00:00'::time;
+                                         QUERY PLAN                                          
+---------------------------------------------------------------------------------------------
+ Foreign Scan on public.tbl04  (cost=25.00..34.02 rows=9 width=8)
+   Output: (c5)::time without time zone
+   Foreign Table Size: 9 b
+   Remote SQL: SELECT c5 FROM odbc_fdw_regress.tbl04 WHERE ((CAST(c5 AS time) > '00:00:00'))
+(4 rows)
+
+--Testcase 168:
+SELECT c5::time FROM tbl04 WHERE c5::time > '00:00:00'::time;
+    c5    
+----------
+ 10:10:00
+ 10:10:00
+(2 rows)
+
+--Testcase 169:
+DROP FOREIGN TABLE s1;
+--Testcase 170:
+DROP FOREIGN TABLE tbl04;
+--Testcase 171:
+DROP USER MAPPING FOR CURRENT_USER SERVER :DB_SERVERNAME;
+--Testcase 172:
+DROP SERVER :DB_SERVERNAME CASCADE;
+--Testcase 173:
+DROP EXTENSION :DB_EXTENSIONNAME CASCADE;

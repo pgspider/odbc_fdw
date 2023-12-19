@@ -2,8 +2,8 @@
 export PDB_PORT="5444"
 export PDB_NAME1="odbc_fdw_regress"
 export PDB_NAME2="odbc_fdw_post"
-export PGS_BIN_DIR="/home/test/workplace/postgresql-15.0/install"
-export FDW_DIR="/home/test/workplace/postgresql-15.0/contrib/odbc_fdw"
+export PGS_BIN_DIR="/home/test/workplace/postgresql-16.0/install"
+export FDW_DIR="/home/test/workplace/postgresql-16.0/contrib/odbc_fdw"
 
 CURR_PATH=$(pwd)
 
